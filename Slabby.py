@@ -25,7 +25,7 @@ class Slab:
     # get key word constructor arguments
     if kwargs is not None:
       for key, value in kwargs.items():
-        if key == "loud" or key == "diagnostic" or key == "homogenous":
+        if key == "loud" or key == "diagnostic" or key == "homogenous" or key == "LaTeX":
           print(key + ": " + str(value))
           setattr(self , key , booleanize(value))
         elif key == "epsilon" or key == "alpha":
@@ -259,7 +259,7 @@ class Slab:
       psiIn = psiOut
 
   def estimateRho(self , oldScalarFlux):
-    self.rho = np.sqrt(np.dot(self.scalarFlux , self.scalarFlux)) / np.sqrt((0.000000001 + np.dot(oldScalarFlux , oldScalarFlux)))
+    self.rho = np.sqrt(np.dot(self.scalarFlux , self.scalarFlux)) / np.sqrt( 0.000000001 + np.dot(oldScalarFlux , oldScalarFlux) )
 
   def testConvergence(self , oldScalarFlux):
     self.currentEps = max( np.divide( np.abs(self.scalarFlux - oldScalarFlux)  ,  np.abs(self.scalarFlux) + 0.000001 ) )
@@ -314,7 +314,10 @@ class Slab:
     with open(self.out , "a") as output:
       output.write("\r\n x , Scalar Flux: \r\n")
       for i , val in enumerate(self.scalarFlux):
-        output.write('{:1.4f}'.format( i * self.width / self.numBins ) + " , " + '{:1.7f}'.format(val) + "\r\n")
+        if self.LaTeX == True:
+          output.write('{:1.4f}'.format( i * self.width / self.numBins ) + " & " + '{:1.7f}'.format(val) + r"\\" + " \r\n")
+        else:
+          output.write('{:1.4f}'.format( i * self.width / self.numBins ) + " , " + '{:1.7f}'.format(val) + "\r\n")
 
 
 def booleanize(value):
@@ -338,6 +341,7 @@ if __name__ == '__main__':
 
   if 'General' in conf:
     loud          =  booleanize( conf['General']['Loud'].strip()        )
+    LaTeX         =  booleanize( conf['General']['LaTeX'].strip()        )
     diagnostic    =  booleanize( conf['General']['Diagnostic'].strip()  )
     outputFi      =              conf['General']['Output'].strip()
     epsilon       =  float(      conf['General']['convergence'].strip()  )
@@ -385,7 +389,7 @@ if __name__ == '__main__':
 
   # Create slab object and run the simulation
   # hardcoded values: 100 maximum iterations, alpha=0 for diamond difference
-  slab = Slab(loud=loud , diagnostic=diagnostic , quadSetOrder=quadSetOrder , epsilon=epsilon , out=outputFi , maxIter=100 , alpha=0)
+  slab = Slab(loud=loud , diagnostic=diagnostic , quadSetOrder=quadSetOrder , epsilon=epsilon , out=outputFi , maxIter=100 , alpha=0, LaTeX=LaTeX)
   if homogenous == True:
     slab.setHomogenousData(bins , width , SigT , SigS , Q)
   else:
