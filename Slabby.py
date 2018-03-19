@@ -59,10 +59,9 @@ class Slab:
       self.Q[i]    = q
       self.SigS[i] = sigs
       self.SigT[i] = sigt
-    print("number of bins: " + str(numBins))
-    print("slab width : "    + str(width))
 
-
+    print("number of bins: " + str(self.numBins))
+    print("slab width : "    + str(self.width))
 
   def getMatDataFromFile(self , filename):
     with open(filename, "r") as dat:
@@ -81,13 +80,25 @@ class Slab:
 
     self.binWidth = float(data[1][zInd].strip().rstrip("\r\n")) - float(data[0][zInd].strip().rstrip("\r\n"))
     self.width    = float(data[-1][zInd].strip().rstrip("\r\n"))
-    self.numBins  = len(data[zInd][:])
-    self.Q    = np.array([float(x) for x in data[:][qInd].strip().rstrip("\r\n") ])
-    self.SigT = np.array([float(x) for x in data[:][tInd].strip().rstrip("\r\n") ])
-    self.SigS = np.array([float(x) for x in data[:][sInd].strip().rstrip("\r\n") ])
+    self.numBins  = len(data)
+    self.Q        = np.zeros(self.numBins)
+    self.SigT     = np.zeros(self.numBins)
+    self.SigS     = np.zeros(self.numBins)
 
-    print("number of bins: " + str(numBins))
-    print("slab width : "    + str(width))
+    for i , line in enumerate(data):
+      line  = [x.strip().rstrip("\n\r") for x in  line.split(",")]
+      self.Q[i]    = float(line[qInd])
+      self.SigT[i] = float(line[tInd])
+      self.SigS[i] = float(line[sInd])
+
+    print("number of bins: " + str(self.numBins))
+    print("slab width : "    + str(self.width))
+    print(self.Q)
+    print(self.binWidth)
+    print(self.width)
+    print(self.numBins)
+    print(self.SigT)
+    print(self.SigS)
 
   def writeOutput(self , filename):
     # write the diagnostics to the output file
