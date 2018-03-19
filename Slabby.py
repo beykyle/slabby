@@ -55,7 +55,7 @@ class Slab:
 
 
     # inital scalar flux guess
-    self.scalarFlux = np.ones(numBins) * 10.0
+    self.scalarFlux = np.ones(numBins)
 
     # initialize quad set weights ,  make sure they're normalized
     self.mu , self.weights = roots_legendre(self.quadSetOrder , mu=False)
@@ -81,17 +81,28 @@ class Slab:
 
   def plotScalarFlux(self, iterNum ):
     plt.ion()
+    plt.cla()
     x = np.linspace(0 , self.width , self.numBins)
     plt.plot(x , self.scalarFlux , "k*")
     plt.xlabel(r"$x$ [cm]")
     plt.ylabel(r"scalar flux, $\Phi$ [cm$^{-2}$ s$^{-1}$ ]")
     plt.title("Iteration " + str(iterNum))
 
-    if self.loud == True:
+    if self.loud == True and self.currentEps >= self.epsilon:
       plt.draw()
       plt.pause(0.001)
-    if self.currentEps < self.epsilon:
+    else:
+      plt.ioff()
+      print("finished")
+      plt.close()
+      plt.clf()
+      x = np.linspace(0 , self.width , self.numBins)
+      plt.plot(x , self.scalarFlux , "k*")
+      plt.xlabel(r"$x$ [cm]")
+      plt.ylabel(r"scalar flux, $\Phi$ [cm$^{-2}$ s$^{-1}$ ]")
+      plt.title("converged solution, after " + str(iterNum) + " iterations")
       plt.show()
+
     if diagnostic == True:
       plt.savefig("./flux_" + str(iterNum) + ".png")
 
@@ -140,6 +151,7 @@ class Slab:
     N = int(self.quadSetOrder / 2)
     # this transport function explicitly iterates through the spatial variable
     # and is vectorized in the angular variable for SIMD optimization
+    # it uses the numpy library for vector operations
 
     # precompute scatter source for the isotropic problem (only discretized over space)
     Sn = self.getScatterSource()
@@ -152,7 +164,7 @@ class Slab:
     psiOut = np.zeros(( int( self.quadSetOrder / 2)))
 
     # sweep left to right
-    for i in range(0,self.numBins - 1):
+    for i in range(0,self.numBins):
       # find the upstream flux at the right bin boundary
       psiOut = np.divide( (np.multiply( self.c1lr[i,:] , psiIn[:]  ) + Sn[i] *  self.binWidth ) , self.c2lr[i,:])
       # find the average flux in the bin according to the spatial differencing scheme
@@ -163,14 +175,17 @@ class Slab:
       psiIn = psiOut
 
     # find the right boundary flux
-    psiIn = self.rightBoundaryFlux
+    if (self.rightBoundaryType == "reflecting"):
+      psiIn = psiOut
+    else:
+      psiIn = self.rightBoundaryFlux
 
     # sweep right to left
     for i in range(self.numBins -1 , 0 , -1):
       # find the upstream flux at the left bin boundary
       psiOut = np.divide( (np.multiply( self.c1rl[i,:] , psiIn[:]  ) + Sn[i] * self.binWidth ) , self.c2rl[i,:] )
       # find the average flux in the bin according to the spatial differencing scheme
-      psiAv  = (1 + self.alpha) * 0.5 * psiOut[:] + (1 - self.alpha) * 0.5 * psiIn[:]
+      psiAv  = (1 + np.abs(self.alpha)) * 0.5 * psiOut[:] + (1 - np.abs(self.alpha)) * 0.5 * psiIn[:]
       # find the scalar flux in this spatial bin from left-moving flux
       self.scalarFlux[i] += self.getScalarFlux(psiAv , direction=left)
       # set the incident flux on the next bin to exiting flux from this bin
@@ -212,7 +227,7 @@ class Slab:
       oldScalarFlux = np.copy( self.scalarFlux[:] )
       self.transportSweep()
 
-      if self.diagnostic == True and iterationNum > 1:
+      if self.diagnostic == True and iterationNum > 0:
         # calculate new rho estimate
         self.estimateRho(oldScalarFlux)
         # calculate new epsilon to test convergence
