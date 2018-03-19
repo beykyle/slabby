@@ -9,6 +9,7 @@ Slabby is a Diamond-Differenced, discrete ordinates, 1-D planar geometry, fixed-
 import numpy as np
 import configparser
 import sys
+from matplotlib.ticker import MaxNLocator
 from scipy.special import roots_legendre
 from matplotlib    import pyplot as plt
 
@@ -43,11 +44,22 @@ class Slab:
     self.currentEps  = 1000 # a big number
     self.rho         = 0
 
+    self.epsilons = []
+    self.rhos     = []
+    self.its      = []
+
     # initialize quad set weights ,  make sure they're normalized
     self.mu , self.weights = roots_legendre(self.quadSetOrder , mu=False)
     self.weights = np.array(self.weights)
     self.weights = self.weights / sum(self.weights)
 
+    if self.loud == True:
+      self.fig = plt.figure(figsize=(12, 6))
+      grid = plt.GridSpec(2, 2, wspace=0.4, hspace=0.3)
+
+      self.ax1 = self.fig.add_subplot(grid[0,:])
+      self.ax2 = self.fig.add_subplot(grid[1,0])
+      self.ax3 = self.fig.add_subplot(grid[1,1])
   def setHomogenousData(self , numBins , width , sigt , sigs , q):
     self.numBins     = int(numBins)
     self.binWidth    = float(width / numBins)
@@ -65,11 +77,10 @@ class Slab:
 
   def getMatDataFromFile(self , filename):
     with open(filename, "r") as dat:
-      headers = dat.readline().split(",")
-      for i , header in enumerate(headers):
-        if header.strip().rstrip("\r\n") == "z":
-          zInd = i
-        elif header.strip().rstrip("\r\n") == "SigS":
+      self.width = float(dat.readline())
+      headers    = dat.readline()
+      for i , header in enumerate(headers.split(",")):
+        if   header.strip().rstrip("\r\n") == "SigS":
           sInd = i
         elif header.strip().rstrip("\r\n") == "SigT":
           tInd = i
@@ -78,9 +89,8 @@ class Slab:
 
       data = dat.readlines()[1:]
 
-    self.binWidth = float(data[1][zInd].strip().rstrip("\r\n")) - float(data[0][zInd].strip().rstrip("\r\n"))
-    self.width    = float(data[-1][zInd].strip().rstrip("\r\n"))
     self.numBins  = len(data)
+    self.binWidth = float(self.width / self.numBins)
     self.Q        = np.zeros(self.numBins)
     self.SigT     = np.zeros(self.numBins)
     self.SigS     = np.zeros(self.numBins)
@@ -93,43 +103,54 @@ class Slab:
 
     print("number of bins: " + str(self.numBins))
     print("slab width : "    + str(self.width))
-    print(self.Q)
-    print(self.binWidth)
-    print(self.width)
-    print(self.numBins)
-    print(self.SigT)
-    print(self.SigS)
 
   def writeOutput(self , filename):
     # write the diagnostics to the output file
     with open(filename , "a") as output:
-      output.write("Epsilon: " + '{:1.9E}'.format(self.currentEps) + " , Rho: " + '{:1.9E}'.format(self.rho) + "\r\n")
+      output.write("Epsilon: " + '{:1.9E}'.format(self.currentEps) + " , Rho: " + '{:1.9E}'.format(self.rho))
     # print the diagnostics to the command line
-    print("Epsilon: " + '{:1.9E}'.format(self.currentEps) + " , Rho: " + '{:1.9E}'.format(self.rho) + "\r\n")
+    print("Epsilon: " + '{:1.9E}'.format(self.currentEps) + " , Rho: " + '{:1.9E}'.format(self.rho))
 
   def plotScalarFlux(self, iterNum ):
     plt.ion()
     plt.cla()
+    self.ax1.clear()
+
+    self.its.append(iterNum)
+    if iterNum > 2:
+      self.epsilons.append(self.currentEps)
+      self.rhos.append(self.rho)
+    else:
+      self.epsilons.append(None)
+      self.rhos.append(None)
+
+    self.ax2.set_xlabel("Iteration Number")
+    self.ax3.set_xlabel("Iteration Number")
+    xint = range(0, iterNum+2 , int(round(iterNum / 10))+1 )
+    self.ax3.set_xticks(xint)
+    self.ax2.set_xticks(xint)
+    self.ax2.set_ylabel(r"Convergence Criterion, $\epsilon$")
+    self.ax3.set_ylabel(r"Estimated ROC, $\rho$")
+
+    self.ax2.plot(self.its , self.epsilons , 'r.' , label=r"$\epsilon$")
+    self.ax2.plot([0,iterNum+1] , [self.epsilon , self.epsilon] , 'k--' , label="criterion")
+    self.ax2.legend()
+    self.ax3.plot(self.its , self.rhos     , 'b.' , label=r"$\rho$")
+
     x = np.linspace(0 , self.width , self.numBins)
-    plt.plot(x , self.scalarFlux , "k.")
-    plt.xlabel(r"$x$ [cm]")
-    plt.ylabel(r"scalar flux, $\Phi$ [cm$^{-2}$ s$^{-1}$ ]")
-    plt.title("Iteration " + str(iterNum))
+    self.ax1.plot(x , self.scalarFlux , "k.")
+    self.ax1.set_xlabel(r"$x$ [cm]")
+    self.ax1.set_ylabel(r"scalar flux, $\Phi$ [cm$^{-2}$ s$^{-1}$ ]")
+    self.ax1.set_title("Iteration " + str(iterNum))
 
     if self.loud == True and self.currentEps >= self.epsilon:
       plt.draw()
       plt.pause(0.001)
     else:
       plt.ioff()
-      print("finished")
-      plt.close()
-      plt.clf()
-      x = np.linspace(0 , self.width , self.numBins)
-      plt.plot(x , self.scalarFlux , "k*")
-      plt.xlabel(r"$x$ [cm]")
-      plt.ylabel(r"scalar flux, $\Phi$ [cm$^{-2}$ s$^{-1}$ ]")
-      plt.title("converged solution, after " + str(iterNum) + " iterations")
-      plt.show()
+      plt.draw()
+      a = input("Press ENTER to finish")
+      print("finished!")
 
     if diagnostic == True:
       plt.savefig("./flux_" + str(iterNum) + ".png")
@@ -238,7 +259,7 @@ class Slab:
       psiIn = psiOut
 
   def estimateRho(self , oldScalarFlux):
-    self.rho = np.dot(self.scalarFlux , self.scalarFlux) / (0.000000001 + np.dot(oldScalarFlux , oldScalarFlux))
+    self.rho = np.sqrt(np.dot(self.scalarFlux , self.scalarFlux)) / np.sqrt((0.000000001 + np.dot(oldScalarFlux , oldScalarFlux)))
 
   def testConvergence(self , oldScalarFlux):
     self.currentEps = max( np.divide( np.abs(self.scalarFlux - oldScalarFlux)  ,  np.abs(self.scalarFlux) + 0.000001 ) )
