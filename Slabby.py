@@ -258,11 +258,13 @@ class Slab:
       # set the incident flux on the next bin to exiting flux from this bin
       psiIn = psiOut
 
-  def estimateRho(self , oldScalarFlux):
-    self.rho = np.sqrt(np.dot(self.scalarFlux , self.scalarFlux)) / np.sqrt( 0.000000001 + np.dot(oldScalarFlux , oldScalarFlux) )
+  def estimateRho(self , oldError):
+    currentError = self.scalarFlux - self.oldScalarFlux
+    rho = np.sqrt( np.dot(currentError , currentError ) / np.dot(oldError , oldError ) )
+    return(rho)
 
-  def testConvergence(self , oldScalarFlux):
-    self.currentEps = max( np.divide( np.abs(self.scalarFlux - oldScalarFlux)  ,  np.abs(self.scalarFlux) + 0.000001 ) )
+  def testConvergence(self , oldError):
+    return( max( np.divide( oldError  , np.abs(self.scalarFlux) + 0.0000000001 ) ) )
 
   def clearOutput(self):
     with open(self.out , "w") as outt:
@@ -270,7 +272,8 @@ class Slab:
 
   def run(self):
     # inital scalar flux guess
-    self.scalarFlux = np.zeros(self.numBins)
+    self.scalarFlux    = np.zeros(self.numBins)
+    self.oldScalarFlux = np.zeros(self.numBins)
     iterationNum = 0
     self.clearOutput()
 
@@ -294,14 +297,15 @@ class Slab:
       self.plotScalarFlux(iterationNum)
       iterationNum += 1
       # run a transport sweep
-      oldScalarFlux = np.copy( self.scalarFlux[:] )
+      oldError = self.scalarFlux - self.oldScalarFlux
+      self.oldScalarFlux = np.copy( self.scalarFlux[:] )
       self.transportSweep()
 
-      if self.diagnostic == True and iterationNum > 0:
+      if self.diagnostic == True and iterationNum > 1:
         # calculate new rho estimate
-        self.estimateRho(oldScalarFlux)
+        self.rho = self.estimateRho(oldError)
         # calculate new epsilon to test convergence
-        self.testConvergence(oldScalarFlux)
+        self.currentEps = self.testConvergence(oldError)
         # call writeOutput
         self.writeOutput(self.out)
         # call the plotter
