@@ -107,7 +107,7 @@ class Slab:
   def writeOutput(self , filename):
     # write the diagnostics to the output file
     with open(filename , "a") as output:
-      output.write("Epsilon: " + '{:1.9E}'.format(self.currentEps) + " , Rho: " + '{:1.9E}'.format(self.rho))
+      output.write("Epsilon: " + '{:1.9E}'.format(self.currentEps) + " , Rho: " + '{:1.9E}'.format(self.rho) + "\r\n")
     # print the diagnostics to the command line
     print("Epsilon: " + '{:1.9E}'.format(self.currentEps) + " , Rho: " + '{:1.9E}'.format(self.rho))
 
@@ -294,7 +294,7 @@ class Slab:
       self.c2rl[i,:] = (np.abs(self.mu[:N]) + (1 + np.abs(self.alpha)) * self.SigT[i] * self.binWidth / 2)[:]
 
     while(self.currentEps > self.epsilon):
-      self.plotScalarFlux(iterationNum)
+      #self.plotScalarFlux(iterationNum)
       iterationNum += 1
       # run a transport sweep
       oldError = self.scalarFlux - self.oldScalarFlux
@@ -309,7 +309,8 @@ class Slab:
         # call writeOutput
         self.writeOutput(self.out)
         # call the plotter
-        self.plotScalarFlux(iterationNum)
+        if self.loud == True:
+          self.plotScalarFlux(iterationNum)
 
       if iterationNum + 1 == self.maxIter:
         break
