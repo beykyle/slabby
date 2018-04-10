@@ -20,15 +20,43 @@ __email__ = "beykyle@umich.edu"
 __status__ = "Development"
 
 class Slab:
-  def __init__(self ,  *args , **kwargs):
+  def __init__(self , DSA="none" , LaTeX="False" , method="SI" , stepMethod='diamond', *args , **kwargs):
     print("Intializing slab!")
+    self.LaTeX = LaTeX
+
+    # determine method , DSA method, and set up differencing scheme
+    if method == "SI":
+      self.method  = method
+      print("Method: " + self.method)
+    else:
+      print("Unrecognized method! Exiting.")
+      sys.exit()
+
+    if DSA == "none" or DSA == "CMFD":
+      self.DSA  = DSA
+      print("DSA method: " + self.DSA)
+    else:
+      print("Unrecognized DSA method! Exiting.")
+      sys.exit()
+
+    if stepMethod == "diamond":
+      self.stepMethod  = stepMethod
+
+    elif stepMethod == "characteristic":
+      self.stepMethod  = stepMethod
+
+    else:
+      print("Unrecognized step method! Exiting.")
+      sys.exit()
+    print("Differencing scheme: " + self.stepMethod)
+
     # get key word constructor arguments
     if kwargs is not None:
       for key, value in kwargs.items():
         if key == "loud" or key == "diagnostic" or key == "homogenous" or key == "LaTeX":
           print(key + ": " + str(value))
           setattr(self , key , booleanize(value))
-        elif key == "epsilon" or key == "alpha":
+        elif key == "epsilon":
           print(key + ": " + str(value))
           setattr(self , key , float(value))
         elif key == "quadSetOrder":
@@ -40,7 +68,6 @@ class Slab:
         else:
           print(key + ": " + str(value))
           setattr(self , key , value)
-
     self.currentEps  = 1000 # a big number
     self.rho         = 0
 
@@ -53,6 +80,7 @@ class Slab:
     self.weights = np.array(self.weights)
     self.weights = self.weights / sum(self.weights)
 
+
     if self.loud == True:
       self.fig = plt.figure(figsize=(12, 6))
       grid = plt.GridSpec(2, 2, wspace=0.4, hspace=0.3)
@@ -60,6 +88,7 @@ class Slab:
       self.ax1 = self.fig.add_subplot(grid[0,:])
       self.ax2 = self.fig.add_subplot(grid[1,0])
       self.ax3 = self.fig.add_subplot(grid[1,1])
+
   def setHomogenousData(self , numBins , width , sigt , sigs , q):
     self.numBins     = int(numBins)
     self.binWidth    = float(width / numBins)
@@ -67,13 +96,14 @@ class Slab:
     self.Q           = np.zeros(numBins)
     self.SigT        = np.zeros(numBins)
     self.SigS        = np.zeros(numBins)
-    for i in range(0,self.numBins-1):
+    for i in range(0,self.numBins):
       self.Q[i]    = q
       self.SigS[i] = sigs
       self.SigT[i] = sigt
 
     print("number of bins: " + str(self.numBins))
     print("slab width : "    + str(self.width))
+
 
   def getMatDataFromFile(self , filename):
     with open(filename, "r") as dat:
@@ -131,7 +161,7 @@ class Slab:
     self.ax2.set_xticks(xint)
     self.ax2.set_ylabel(r"Convergence Criterion, $\epsilon$")
     self.ax3.set_ylabel(r"Estimated ROC, $\rho$")
-
+    #self.ax3.set_ylim(bottom=0)
     self.ax2.plot(self.its , self.epsilons , 'r.' , label=r"$\epsilon$")
     self.ax2.plot([0,iterNum+1] , [self.epsilon , self.epsilon] , 'k--' , label="criterion")
     self.ax2.legend()
@@ -201,8 +231,7 @@ class Slab:
     if kwargs is not None:
       for key, value in kwargs.items():
         if key == "direction" and value == "right":
-          offset = self.quadSetOrder / 2
-
+          offset = int(self.quadSetOrder / 2)
     phi = 0
     # integrate psi over the quadrature set
     for i , val in enumerate(psi):
@@ -233,44 +262,62 @@ class Slab:
     # sweep left to right
     for i in range(0,self.numBins):
       # find the upstream flux at the right bin boundary
-      psiOut = np.divide( (np.multiply( self.c1lr[i,:] , psiIn[:]  ) + Sn[i] *  self.binWidth ) , self.c2lr[i,:])
+      psiOut = np.divide( (np.multiply( self.c1lr[i,:] , psiIn[:]  ) + Sn[i] *  self.binWidth ) , self.c2lr[i,:] )
       # find the average flux in the bin according to the spatial differencing scheme
-      psiAv  = (1 + self.alpha) * 0.5 * psiOut[:] + (1 - self.alpha) * 0.5 * psiIn[:]
+      psiAv  = (1 + self.alpha[i][ :int( self.quadSetOrder / 2) ]) * 0.5 * psiOut[:] + \
+               (1 - self.alpha[i][ :int( self.quadSetOrder / 2) ]) * 0.5 * psiIn[:]
       # find the scalar flux in this spatial bin from right-moving flux
-      self.scalarFlux[i] = self.getScalarFlux(psiAv , direction=right)
+      self.scalarFlux[i] = self.getScalarFlux(psiAv , direction="right")
       # set the incident flux on the next bin to exiting flux from this bin
       psiIn = psiOut
 
     # find the right boundary flux
     if (self.rightBoundaryType == "reflecting"):
-      psiIn = psiOut
+      psiIn = self.rightBoundaryFlux + psiOut
     else:
       psiIn = self.rightBoundaryFlux
+
+    # initialize variables used in the sweep
+    psiAv  = np.zeros(( int( self.quadSetOrder / 2)))
+    psiOut = np.zeros(( int( self.quadSetOrder / 2)))
 
     # sweep right to left
     for i in range(self.numBins -1 , 0 , -1):
       # find the upstream flux at the left bin boundary
       psiOut = np.divide( (np.multiply( self.c1rl[i,:] , psiIn[:]  ) + Sn[i] * self.binWidth ) , self.c2rl[i,:] )
       # find the average flux in the bin according to the spatial differencing scheme
-      psiAv  = (1 + np.abs(self.alpha)) * 0.5 * psiOut[:] + (1 - np.abs(self.alpha)) * 0.5 * psiIn[:]
+      psiAv  = (1 + np.abs(self.alpha[i][ int( self.quadSetOrder / 2): ])) * 0.5 * psiOut[:] + \
+               (1 - np.abs(self.alpha[i][ int( self.quadSetOrder / 2): ])) * 0.5 * psiIn[:]
       # find the scalar flux in this spatial bin from left-moving flux
-      self.scalarFlux[i] += self.getScalarFlux(psiAv , direction=left)
+      self.scalarFlux[i] += self.getScalarFlux(psiAv , direction="left")
       # set the incident flux on the next bin to exiting flux from this bin
       psiIn = psiOut
 
   def estimateRho(self , oldError):
     currentError = self.scalarFlux - self.oldScalarFlux
-    rho = np.sqrt( np.dot(currentError , currentError ) / np.dot(oldError , oldError ) )
+    rho = np.sqrt( np.dot(currentError , currentError ) / (np.dot(oldError , oldError ) + 0.000000000000000001) )
     return(rho)
 
   def testConvergence(self , oldError):
-    return( max( np.divide( oldError  , np.abs(self.scalarFlux) + 0.0000000001 ) ) )
+    return( max( np.divide( oldError  , np.abs(self.scalarFlux) + 10E-12 ) ) )
 
   def clearOutput(self):
     with open(self.out , "w") as outt:
       outt.write("Running 1-D transport! \r\n")
 
   def run(self):
+
+    # precompute alphas
+    if self.stepMethod == "diamond":
+      self.alpha = np.zeros([self.numBins , len(self.mu)])
+
+    elif self.stepMethod == "characteristic":
+      self.alpha =  np.ones([self.numBins , len(self.mu)])
+      nom = self.SigT * self.binWidth
+      for i in range(0,len(nom)):
+        tau = nom[i] / self.mu
+        self.alpha[i][:] *=  1 / np.tanh(tau / 2)  - 2 / tau
+
     # inital scalar flux guess
     self.scalarFlux    = np.zeros(self.numBins)
     self.oldScalarFlux = np.zeros(self.numBins)
@@ -287,11 +334,11 @@ class Slab:
 
     for i in range(0 , self.numBins ):
       # left to right
-      self.c1lr[i,:] = (self.mu[N:] - (1 - self.alpha) * self.SigT[i] * self.binWidth / 2)[:]
-      self.c2lr[i,:] = (self.mu[N:] + (1 + self.alpha) * self.SigT[i] * self.binWidth / 2)[:]
+      self.c1lr[i,:] = (self.mu[N:] - (1 - self.alpha[i][N:]) * self.SigT[i] * self.binWidth / 2)[:]
+      self.c2lr[i,:] = (self.mu[N:] + (1 + self.alpha[i][N:]) * self.SigT[i] * self.binWidth / 2)[:]
       # right to left
-      self.c1rl[i,:] = (np.abs(self.mu[:N]) - (1 - np.abs(self.alpha)) * self.SigT[i] * self.binWidth / 2)[:]
-      self.c2rl[i,:] = (np.abs(self.mu[:N]) + (1 + np.abs(self.alpha)) * self.SigT[i] * self.binWidth / 2)[:]
+      self.c1rl[i,:] = (np.abs(self.mu[:N]) - (1 - np.abs(self.alpha[i][:N])) * self.SigT[i] * self.binWidth / 2)[:]
+      self.c2rl[i,:] = (np.abs(self.mu[:N]) + (1 + np.abs(self.alpha[i][:N])) * self.SigT[i] * self.binWidth / 2)[:]
 
     while(self.currentEps > self.epsilon):
       #self.plotScalarFlux(iterationNum)
@@ -349,6 +396,9 @@ if __name__ == '__main__':
     LaTeX         =  booleanize( conf['General']['LaTeX'].strip()        )
     diagnostic    =  booleanize( conf['General']['Diagnostic'].strip()  )
     outputFi      =              conf['General']['Output'].strip()
+    method        =              conf['General']['Method'].strip()
+    stepMethod    =              conf['General']['stepMethod'].strip()
+    DSA           =              conf['General']['DSA'].strip()
     epsilon       =  float(      conf['General']['convergence'].strip()  )
     quadSetOrder  =  int(        conf['General']['quadSetOrder'].strip() )
     if quadSetOrder % 2 != 0:
@@ -356,7 +406,6 @@ if __name__ == '__main__':
       sys.exit()
 
   else:
-    raise
     print("No General section found in input file! Exiting! ")
     sys.exit()
 
@@ -394,7 +443,9 @@ if __name__ == '__main__':
 
   # Create slab object and run the simulation
   # hardcoded values: 100 maximum iterations, alpha=0 for diamond difference
-  slab = Slab(loud=loud , diagnostic=diagnostic , quadSetOrder=quadSetOrder , epsilon=epsilon , out=outputFi , maxIter=100 , alpha=0, LaTeX=LaTeX)
+  slab = Slab(loud=loud       , method=method , diagnostic=diagnostic , quadSetOrder=quadSetOrder ,
+              epsilon=epsilon , out=outputFi  , maxIter=100 , stepMethod=stepMethod , DSA=DSA
+              )
   if homogenous == True:
     slab.setHomogenousData(bins , width , SigT , SigS , Q)
   else:
