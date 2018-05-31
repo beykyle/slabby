@@ -243,6 +243,10 @@ class Slab:
     # angular moments of the scalar flux
     return( 0.5 * ( np.multiply(self.SigS , self.scalarFlux) + self.Q ) )
 
+  def diffusion(self):
+    scalarFlux = np.zeros(len( self.scalarFlux ))
+    return(scalarFlux)
+
   def transportSweep(self):
     N = int(self.quadSetOrder / 2)
     # this transport function explicitly iterates through the spatial variable
@@ -295,11 +299,11 @@ class Slab:
 
   def estimateRho(self , oldError):
     currentError = self.scalarFlux - self.oldScalarFlux
-    rho = np.sqrt( np.dot(currentError , currentError ) / (np.dot(oldError , oldError ) + 0.000000000000000001) )
+    rho = np.sqrt( np.dot(currentError , currentError ) / (np.dot(oldError , oldError ) ) )
     return(rho)
 
   def testConvergence(self , oldError):
-    return( max( np.divide( oldError  , np.abs(self.scalarFlux) + 10E-12 ) ) )
+    return( max( np.divide( oldError  , np.abs(self.scalarFlux) ) ) )
 
   def clearOutput(self):
     with open(self.out , "w") as outt:
