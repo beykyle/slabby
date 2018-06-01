@@ -88,6 +88,18 @@ class Slab:
       self.ax1 = self.fig.add_subplot(grid[0,:])
       self.ax2 = self.fig.add_subplot(grid[1,0])
       self.ax3 = self.fig.add_subplot(grid[1,1])
+      self.font = { 'family': 'serif',
+                    'color':  'black',
+                    'weight': 'regular',
+                    'size': 12,
+                  }
+
+      self.title_font = { 'family': 'serif',
+                          'color':  'black',
+                          'weight': 'bold',
+                          'size': 12,
+                        }
+
 
   def setHomogenousData(self , numBins , width , sigt , sigs , q):
     self.numBins     = int(numBins)
@@ -154,13 +166,13 @@ class Slab:
       self.epsilons.append(None)
       self.rhos.append(None)
 
-    self.ax2.set_xlabel("Iteration Number")
-    self.ax3.set_xlabel("Iteration Number")
+    self.ax2.set_xlabel("Iteration Number" , fontdict=self.font)
+    self.ax3.set_xlabel("Iteration Number" , fontdict=self.font)
     xint = range(0, iterNum+2 , int(round(iterNum / 10))+1 )
     self.ax3.set_xticks(xint)
     self.ax2.set_xticks(xint)
-    self.ax2.set_ylabel(r"Convergence Criterion, $\epsilon$")
-    self.ax3.set_ylabel(r"Estimated ROC, $\rho$")
+    self.ax2.set_ylabel(r"Convergence Criterion, $\epsilon$" , fontdict=self.font)
+    self.ax3.set_ylabel(r"Estimated ROC, $\rho$"             , fontdict=self.font)
     #self.ax3.set_ylim(bottom=0)
     self.ax2.plot(self.its , self.epsilons , 'r.' , label=r"$\epsilon$")
     self.ax2.plot([0,iterNum+1] , [self.epsilon , self.epsilon] , 'k--' , label="criterion")
@@ -168,12 +180,17 @@ class Slab:
     self.ax3.plot(self.its , self.rhos     , 'b.' , label=r"$\rho$")
 
     x = np.linspace(0 , self.width , self.numBins)
-    self.ax1.plot(x , self.scalarFlux , "k.")
-    self.ax1.set_xlabel(r"$x$ [cm]")
-    self.ax1.set_ylabel(r"scalar flux, $\Phi$ [cm$^{-2}$ s$^{-1}$ ]")
-    self.ax1.set_title("Iteration " + str(iterNum))
+    self.ax1.scatter(x , self.scalarFlux  , c='k' , marker='.')
+    self.ax1.set_xlabel(r"$x$ [cm]", fontdict=self.font)
+    self.ax1.set_ylabel(r"scalar flux, $\Phi$ [cm$^{-2}$ s$^{-1}$ ]", fontdict=self.font)
+    self.ax1.set_title("Iteration " + str(iterNum), fontdict=self.title_font)
+    self.ax1.plot( [x[0]  , x[0]  ] , [0 , max(self.scalarFlux)*1.2 ]  , '--r'  )
+    self.ax1.plot( [x[-1] , x[-1] ] , [0 , max(self.scalarFlux)*1.2 ]  , '--r' )
+    adjustment = (x[-1] - x[0])*0.05
+    self.ax1.text( x[0]  - adjustment     , 1.1*self.ax1.get_ylim()[1] , self.leftBoundaryType  , fontdict=self.font)
+    self.ax1.text( x[-1] - 1.2*adjustment , 1.1*self.ax1.get_ylim()[1] , self.rightBoundaryType , fontdict=self.font)
 
-    if self.loud == True and self.currentEps >= self.epsilon:
+    if self.loud == True and ( self.currentEps >= self.epsilon or self.iterationNum > self.maxIter):
       plt.draw()
       plt.pause(0.001)
     else:
@@ -182,7 +199,8 @@ class Slab:
       a = input("Press ENTER to finish")
       print("finished!")
 
-    if diagnostic == True:
+    # save converged figure
+    if (self.currentEps >= self.epsilon or self.iterationNum > self.maxIter):
       plt.savefig("./flux_" + str(iterNum) + ".png")
 
   def setRightBoundaryFlux(self , rightFlux , *args , **kwargs):
@@ -277,7 +295,7 @@ class Slab:
 
     # find the right boundary flux
     if (self.rightBoundaryType == "reflecting"):
-      psiIn = self.rightBoundaryFlux + psiOut
+      psiIn = self.rightBoundaryFlux + psiOut[::-1] # reverse psiOut array
     else:
       psiIn = self.rightBoundaryFlux
 
@@ -303,7 +321,7 @@ class Slab:
     return(rho)
 
   def testConvergence(self , oldError):
-    return( max( np.divide( oldError  , np.abs(self.scalarFlux) ) ) )
+    return( np.fabs(max( np.divide( oldError  , np.abs(self.scalarFlux) ) ) ))
 
   def clearOutput(self):
     with open(self.out , "w") as outt:
@@ -325,8 +343,12 @@ class Slab:
     # inital scalar flux guess
     self.scalarFlux    = np.zeros(self.numBins)
     self.oldScalarFlux = np.zeros(self.numBins)
-    iterationNum = 0
+    self.iterationNum = 0
     self.clearOutput()
+
+    # call the plotter
+    if self.loud == True:
+      self.plotScalarFlux(self.iterationNum)
 
     # precompute coefficients for solving for upstream
     # coefficients form a constant matrix, discretized over both angle and space
@@ -346,24 +368,25 @@ class Slab:
 
     while(self.currentEps > self.epsilon):
       #self.plotScalarFlux(iterationNum)
-      iterationNum += 1
+      self.iterationNum += 1
       # run a transport sweep
       oldError = self.scalarFlux - self.oldScalarFlux
       self.oldScalarFlux = np.copy( self.scalarFlux[:] )
       self.transportSweep()
 
-      if self.diagnostic == True and iterationNum > 1:
+      if self.diagnostic == True and self.iterationNum > 1:
         # calculate new rho estimate
         self.rho = self.estimateRho(oldError)
         # calculate new epsilon to test convergence
         self.currentEps = self.testConvergence(oldError)
         # call writeOutput
         self.writeOutput(self.out)
-        # call the plotter
-        if self.loud == True:
-          self.plotScalarFlux(iterationNum)
 
-      if iterationNum + 1 == self.maxIter:
+      # call the plotter
+      if self.loud == True:
+        self.plotScalarFlux(self.iterationNum)
+
+      if self.iterationNum + 1 == self.maxIter:
         break
 
     # the simulation is done, write the scalar flux to the output file
