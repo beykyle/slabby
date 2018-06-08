@@ -1,6 +1,5 @@
 #!/usr/bin/env py36
 
-
 """
 Slabby is a Diamond-Differenced, discrete ordinates, 1-D planar geometry, fixed-source, monoenergetic, isotropic scattering neutron transport code
 
@@ -9,6 +8,7 @@ Slabby is a Diamond-Differenced, discrete ordinates, 1-D planar geometry, fixed-
 import numpy as np
 import configparser
 import sys
+import types
 from matplotlib.ticker import MaxNLocator
 from scipy.special import roots_legendre
 from matplotlib    import pyplot as plt
@@ -19,8 +19,36 @@ __maintainer__ = "Kyle Beyer"
 __email__ = "beykyle@umich.edu"
 __status__ = "Development"
 
+
+class Mesh:
+
+  def __init__(self , zmin=0 , zmax=10 , numBins=100 , inputFile=None):
+    if inputFile == None:
+      """
+      zmin corresponds to the left edge of the first bin
+      zmax corresponds to the right edge of the last bin
+      """
+      self.z = np.linspace(zmin , zmax , num=numBins)
+
+    else:
+      """
+      If an inputFIle kwarg is passed, all other parameters will be ignored
+      Input file must have, as the 1st column, the z values of every left bin edge,
+      as well as the final right bin edge, in cm
+      """
+      self.setupFromInputFile(inputFile)
+
+  def setupFromInputFule(self , inputfile):
+    raise NotImplementedError
+
+  def binWidth(self , index):
+    """
+    indexing is from 1
+    """
+    return(self.z[index] - self.z[index-1])
+
 class Slab:
-  def __init__(self , DSA="none" , LaTeX="False" , method="SI" , stepMethod='diamond', *args , **kwargs):
+  def __init__(self , LaTeX="False" , method="SI" , stepMethod='diamond', *args , **kwargs):
     print("Intializing slab!")
     self.LaTeX = LaTeX
 
@@ -32,14 +60,10 @@ class Slab:
       print("Unrecognized method! Exiting.")
       sys.exit()
 
-    if DSA == "none" or DSA == "CMFD":
-      self.DSA  = DSA
-      print("DSA method: " + self.DSA)
-    else:
-      print("Unrecognized DSA method! Exiting.")
-      sys.exit()
+    if stepMethod == "implicit":
+      self.stepMethod  = stepMethod
 
-    if stepMethod == "diamond":
+    elif stepMethod == "diamond":
       self.stepMethod  = stepMethod
 
     elif stepMethod == "characteristic":
@@ -153,6 +177,11 @@ class Slab:
     # print the diagnostics to the command line
     print("Epsilon: " + '{:1.9E}'.format(self.currentEps) + " , Rho: " + '{:1.9E}'.format(self.rho))
 
+  def addCoarseMesh(coarseMesh , method='CMFD'):
+    self.coarseMesh   = True
+    self.acceleration = method
+    self.coarseMesh   = coarseMesh
+
   def plotScalarFlux(self, iterNum ):
     plt.ion()
     plt.cla()
@@ -196,7 +225,7 @@ class Slab:
     else:
       plt.ioff()
       plt.draw()
-      a = input("Press ENTER to finish")
+      input("Press ENTER to finish")
       print("finished!")
 
     # save converged figure
@@ -328,10 +357,20 @@ class Slab:
       outt.write("Running 1-D transport! \r\n")
 
   def run(self):
+    """
+    constants precomputed and vectorized for speed
+    In a 3D code this would typically exceed memory limits of most devices, and be impractical
+    but it allows for drastic speed improvements in the 1D case
 
-    # precompute alphas
+    """
+    # precompute alphas - constant matrix discretized over space and angle
+    N = int(self.quadSetOrder / 2)
     if self.stepMethod == "diamond":
       self.alpha = np.zeros([self.numBins , len(self.mu)])
+
+    if self.stepMethod == "implicit":
+      self.alpha = np.ones([self.numBins , len(self.mu)])
+      self.alpha[:][:N] = self.alpha[:][:N] * -1
 
     elif self.stepMethod == "characteristic":
       self.alpha =  np.ones([self.numBins , len(self.mu)])
@@ -350,13 +389,12 @@ class Slab:
     if self.loud == True:
       self.plotScalarFlux(self.iterationNum)
 
-    # precompute coefficients for solving for upstream
+    # precompute coefficients for solving for upstream SI
     # coefficients form a constant matrix, discretized over both angle and space
-    N = int(self.quadSetOrder / 2)
-    self.c1lr = np.zeros((self.numBins , int(self.quadSetOrder / 2)))
-    self.c2lr = np.zeros((self.numBins , int(self.quadSetOrder / 2)))
-    self.c1rl = np.zeros((self.numBins , int(self.quadSetOrder / 2)))
-    self.c2rl = np.zeros((self.numBins , int(self.quadSetOrder / 2)))
+    self.c1lr = np.zeros((self.numBins , N ))
+    self.c2lr = np.zeros((self.numBins , N ))
+    self.c1rl = np.zeros((self.numBins , N ))
+    self.c2rl = np.zeros((self.numBins , N ))
 
     for i in range(0 , self.numBins ):
       # left to right
@@ -374,11 +412,13 @@ class Slab:
       self.oldScalarFlux = np.copy( self.scalarFlux[:] )
       self.transportSweep()
 
-      if self.diagnostic == True and self.iterationNum > 1:
+      if self.iterationNum > 1:
         # calculate new rho estimate
         self.rho = self.estimateRho(oldError)
         # calculate new epsilon to test convergence
         self.currentEps = self.testConvergence(oldError)
+
+      if self.diagnostic == True and self.iterationNum > 1:
         # call writeOutput
         self.writeOutput(self.out)
 
@@ -411,10 +451,7 @@ def booleanize(value):
         return False
     raise TypeError("Cannot booleanize ambiguous value '%s'" % value)
 
-if __name__ == '__main__':
-
-  # Read settings from input file
-  inputFile = sys.argv[1]
+def getSlabFromInput(inputfile):
   conf = configparser.ConfigParser()
   conf.read(inputFile)
 
@@ -423,17 +460,21 @@ if __name__ == '__main__':
     LaTeX         =  booleanize( conf['General']['LaTeX'].strip()        )
     diagnostic    =  booleanize( conf['General']['Diagnostic'].strip()  )
     outputFi      =              conf['General']['Output'].strip()
-    method        =              conf['General']['Method'].strip()
-    stepMethod    =              conf['General']['stepMethod'].strip()
-    DSA           =              conf['General']['DSA'].strip()
-    epsilon       =  float(      conf['General']['convergence'].strip()  )
-    quadSetOrder  =  int(        conf['General']['quadSetOrder'].strip() )
+  else:
+    print("No General section found in input file! Exiting! ")
+    sys.exit()
+
+  if 'Numerical Settings' in conf:
+    method        =              conf['Numerical Settings']['Method'].strip()
+    stepMethod    =              conf['Numerical Settings']['stepMethod'].strip()
+    DSA           =              conf['Numerical Settings']['DSA'].strip()
+    epsilon       =  float(      conf['Numerical Settings']['convergence'].strip()  )
+    quadSetOrder  =  int(        conf['Numerical Settings']['quadSetOrder'].strip() )
     if quadSetOrder % 2 != 0:
       print("Order of the quad set must be even! Exiting!")
       sys.exit()
-
   else:
-    print("No General section found in input file! Exiting! ")
+    print("No Numerical Settings section found in input file! Exiting! ")
     sys.exit()
 
   if 'Slab' in conf:
@@ -447,7 +488,7 @@ if __name__ == '__main__':
       SigS          =  float(      conf['Slab']['SigS'].strip()       )
       Q             =  float(      conf['Slab']['Q'].strip()          )
     else:
-      print("mat data not inputted!")
+      print("material data not inputted!")
       sys.exit()
   else:
     raise
@@ -473,6 +514,7 @@ if __name__ == '__main__':
   slab = Slab(loud=loud       , method=method , diagnostic=diagnostic , quadSetOrder=quadSetOrder ,
               epsilon=epsilon , out=outputFi  , maxIter=100 , stepMethod=stepMethod , DSA=DSA
               )
+
   if homogenous == True:
     slab.setHomogenousData(bins , width , SigT , SigS , Q)
   else:
@@ -480,6 +522,18 @@ if __name__ == '__main__':
 
   slab.setRightBoundaryFlux( rightFlux , boundaryType=right)
   slab.setLeftBoundaryFlux(  leftFlux  , boundaryType=left )
-  slab.run()
 
+  return(slab)
+
+
+if __name__ == '__main__':
+
+  # if called from the command line, input file is the 1st command line arg
+  inputFile = sys.argv[1]
+
+  # set up slab
+  slab = getSlabFromInput(inputFile)
+
+  # run the slab
+  slab.run()
 
