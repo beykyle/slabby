@@ -1,6 +1,5 @@
 #!/usr/bin/env py36
 
-
 """
 Slabby is a Diamond-Differenced, discrete ordinates, 1-D planar geometry, fixed-source, monoenergetic, isotropic scattering neutron transport code
 
@@ -176,8 +175,10 @@ class Slab:
     #self.ax3.set_ylim(bottom=0)
     self.ax2.plot(self.its , self.epsilons , 'r.' , label=r"$\epsilon$")
     self.ax2.plot([0,iterNum+1] , [self.epsilon , self.epsilon] , 'k--' , label="criterion")
-    self.ax2.legend()
     self.ax3.plot(self.its , self.rhos     , 'b.' , label=r"$\rho$")
+
+    if iterNum == 0:
+        self.ax2.legend()
 
     x = np.linspace(0 , self.width , self.numBins)
     self.ax1.scatter(x , self.scalarFlux  , c='k' , marker='.')
@@ -256,6 +257,16 @@ class Slab:
       phi += val * self.weights[i + offset]
     return(phi)
 
+  def getCellEdgeCurrent(self , psi_right , psi_left):
+    # apply the 1st order angular moment avergaing operator to the
+    # angular flux in a spatial bin according to the Gauss-Legendre quad sets
+    # takes as input the full, 2pi covering (size-N) angular flux at a celle edge
+    for i , val in enumerate(psi_right):
+      phi_1 += self.mu[i] * val * self.weights[i]
+    for i , val in enumerate(psi_left):
+      phi_1 += self.mu[i] * val * self.weights[i]
+    return(phi_1)
+
   def getScatterSource(self):
     # for an isotropically scattering problem we dont need to calculate any
     # angular moments of the scalar flux
@@ -314,6 +325,11 @@ class Slab:
       self.scalarFlux[i] += self.getScalarFlux(psiAv , direction="left")
       # set the incident flux on the next bin to exiting flux from this bin
       psiIn = psiOut
+
+    if (self.DSA == "CMFD"):
+        # calculate P1 approximation to iteration errors on the coarse mesh
+        for i in range(self.coarseBins):
+
 
   def estimateRho(self , oldError):
     currentError = self.scalarFlux - self.oldScalarFlux
