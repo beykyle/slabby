@@ -19,9 +19,36 @@ __status__ = "Development"
 
 # -------------------------------------------------------------------------------------- #
 #
+#  Thomas Algorithm for tridiagonal matrix inversion
+#
+# -------------------------------------------------------------------------------------- #
+
+## Tri Diagonal Matrix Algorithm(a.k.a Thomas algorithm) solver
+def TDMAsolver(a, b, c, d):
+  nf = len(a)     # number of equations
+  ac, bc, cc, dc = map(np.array, (a, b, c, d))     # copy the array
+  for it in range(1, nf):
+    mc = ac[it]/bc[it-1]
+    bc[it] = bc[it] - mc*cc[it-1]
+    dc[it] = dc[it] - mc*dc[it-1]
+
+  xc = ac
+  xc[-1] = dc[-1]/bc[-1]
+
+  for il in range(nf-2, -1, -1):
+    xc[il] = (dc[il]-cc[il]*xc[il+1])/bc[il]
+
+  del bc, cc, dc  # delete variables from memory
+
+  return( xc )
+
+
+# -------------------------------------------------------------------------------------- #
+#
 #  Material class
 #
 # -------------------------------------------------------------------------------------- #
+
 class Material:
   def __init__(self , Q=0 , SigT=0 , SigS=0 , z=[0,10] , matData=None):
     """
@@ -289,9 +316,7 @@ class Slab:
     self.ax2 = self.fig.add_subplot(grid[1,0])
     self.ax3 = self.fig.add_subplot(grid[1,1])
     self.ax2.set_ylabel(r"Convergence Criterion, $\epsilon$" , fontdict=self.font)
-    self.ax3.set_ylabel(r"Estimated ROC, $\rho$"             , fontdict=self.font)
     self.ax2.set_xlabel("Iteration Number" , fontdict=self.font)
-    self.ax3.set_xlabel("Iteration Number" , fontdict=self.font)
     self.ax1.set_xlabel(r"$x$ [cm]", fontdict=self.font)
     self.ax1.set_ylabel(r"scalar flux, $\Phi$ [cm$^{-2}$ s$^{-1}$ ]", fontdict=self.font)
 
@@ -299,6 +324,8 @@ class Slab:
     plt.ion()
     plt.cla()
     self.ax1.clear()
+    self.ax3.set_ylabel(r"Estimated ROC, $\rho$"             , fontdict=self.font)
+    self.ax3.set_xlabel("Iteration Number" , fontdict=self.font)
 
     self.its.append(iterNum)
     if iterNum > 2:
@@ -311,13 +338,13 @@ class Slab:
     xint = range(0, iterNum+2 , int(round(iterNum / 10))+1 )
     self.ax3.set_xticks(xint)
     self.ax2.set_xticks(xint)
-    #self.ax3.set_ylim(bottom=0)
     self.ax2.plot(self.its , self.epsilons , 'r.' , label=r"$\epsilon$")
     self.ax2.plot([0,iterNum+1] , [self.epsilon , self.epsilon] , 'k--' , label="criterion")
     self.ax3.plot(self.its , self.rhos     , 'b.' , label=r"$\rho$")
 
     if iterNum == 0:
         self.ax2.legend()
+        self.ax3.legend()
 
     x = np.linspace(0 , self.width , self.numBins)
     self.ax1.scatter(x , self.scalarFlux  , c='k' , marker='.')
@@ -369,41 +396,85 @@ class Slab:
       phi += val * self.weights[i + offset]
     return(phi)
 
-  def getCellEdgeCurrent(self , psi_right , psi_left):
+  def getCellEdgeCurrent(self , psi_right , *args , **kwargs ):
     # apply the 1st order angular moment avergaing operator to the
     # angular flux in a spatial bin according to the Gauss-Legendre quad sets
-    # takes as input the full, 2pi covering (size-N) angular flux at a celle edge
+    offset = 0
+    if kwargs is not None:
+      for key, value in kwargs.items():
+        if key == "direction" and value == "right":
+          offset = int(self.quadSetOrder / 2)
+    phi1 = 0
     for i , val in enumerate(psi_right):
-      phi_1 += self.mu[i] * val * self.weights[i]
-    for i , val in enumerate(psi_left):
-      phi_1 += self.mu[i] * val * self.weights[i]
-    return(phi_1)
+      phi1 += self.mu[i + offset] * val * self.weights[i + offset]
+    return(phi1)
 
   def getScatterSource(self):
     # for an isotropically scattering problem we dont need to calculate any
     # angular moments of the scalar flux
     return( 0.5 * ( np.multiply(self.SigS , self.scalarFlux) + self.Q ) )
 
-  def diffusion(self ):
+  def getCoarseEdgeCurrent(self):
+    fineBin = 0
+    coarseEdgeCurrent = np.zeros( self.coarseMesh.numBins() )
+    for i in range( self.coarseMesh.numBins() - 1):
+      fineBin += int( self.coarseMesh.map[i] - 1 )
+      coarseEdgeCurrent[i] = self.edgeCurrent[fineBin]
+
+    return( coarseEdgeCurrent )
+
+
+  def coarseDiffusion(self ):
     # set the flux weighted and volume weighted scalar fluxes and cross sections
     coarseScalarFlux  =            self.getVolumeAvgToCoarseMesh( self.scalarFlux )
+    #print( self.scalarFlux )
+    #print( coarseScalarFlux )
     coarseSigT        = np.divide( self.getVolumeAvgToCoarseMesh( np.multiply( self.scalarFlux , self.SigT) )  ,
                         coarseScalarFlux )
-    coarseSigS        = np.divide( self.getVolumeAvgToCoarseMesh( np.multiply( self.scalarFlux , self.SigS) )  ,
+    coarseSigA        = np.divide( self.getVolumeAvgToCoarseMesh( np.multiply( self.scalarFlux , self.SigT - self.SigS) )  ,
                         coarseScalarFlux )
 
-    # calculate coarse cell edge curreny
-    coarseEdgeCurrent = np.zeros( len(self.coarseSigT) )
-
-    # integrate left boundary flux and determine B0
-
-    # integrate right boundary flux and determine BK
+    # calculate coarse cell edge curreny\t
+    coarseEdgeCurrent = self.getCoarseEdgeCurrent()
 
     # determine Dk for each interior coarse cell edge
+    D = np.zeros( self.coarseMesh.numBins() - 1)
+    for i in range(0, self.coarseMesh.numBins() - 1):
+      D[i] = (coarseEdgeCurrent[i] +
+               2/3 * ( ( coarseScalarFlux[i+1] - coarseScalarFlux[i]  ) /
+                       (coarseSigT[i+1] * self.coarseMesh.binWidth(i+1)  +
+                         coarseSigT[i] * self.coarseMesh.binWidth(i) ) )
+              ) / ( coarseScalarFlux[i+1] - coarseScalarFlux[i]  )
 
     # determine updated coarse grid scalar flux
+    # create symmetric tridiagonal system: A and B:  [ A1 -B1         ... 0 ...   ]
+    #                                                [-B1  A2 -B2     ... 0 ...   ]
+    #                                                [-B2  A3 -B3     ... 0 ...   ]
+    #                                                [ 0  -B3  A4 -B4 ... 0 ...   ]
+    #                                                [ .       .   .   .          ]
+    #                                                [ .           .   .   .      ]
+    #                                                [ .               .   .   .  ]
 
-    return(coarseScalarFlux)
+    A = np.ones( self.coarseMesh.numBins() ) # middle diagonal
+    B = np.ones( self.coarseMesh.numBins() ) # outer diagonal
+    S = np.ones( self.coarseMesh.numBins() ) # this is the b in Ax=b
+
+    #TODO
+    # A[0] =
+    # integrate left boundary flux and determine B0
+    B[0]  = self.getCellEdgeCurrent( self.leftBoundaryFlux  , direction="right")
+    # integrate right boundary flux and determine BK
+    B[-1] = self.getCellEdgeCurrent( self.rightBoundaryFlux  , direction="left")
+
+    for i in range( 1 ,  self.coarseMesh.numBins() - 1 ):
+      A[i] =   - coarseSigA[i] * self.coarseMesh.binWidth(i)                                                                    +  \
+               - (2/3) * ( 1/(coarseSigT[i+1] * self.coarseMesh.binWidth(i+1) + coarseSigT[i] * self.coarseMesh.binWidth(i) )   +  \
+                           1/(coarseSigT[i-1] * self.coarseMesh.binWidth(i-1) + coarseSigT[i] * self.coarseMesh.binWidth(i) ) ) +  \
+               D[i-1] + D[i]
+      B[i] =   (2/3) * ( 1/(coarseSigT[i+1] * self.coarseMesh.binWidth(i+1) + coarseSigT[i] * self.coarseMesh.binWidth(i) ) )   + D[i]
+      S[i] =   self.coarseQ[i] * self.coarseMesh.binWidth(i)
+
+    return( TDMAsolver(A , B , B , S ) )
 
   def getVolumeAvgToCoarseMesh( self , vec ):
     # given a vector over the regular mesh, returns a vector over the coarse mesh
@@ -439,6 +510,9 @@ class Slab:
       psiOut = np.divide( (np.multiply( self.c1lr[i,:] , psiIn[:]  ) + Sn[i] *
                           self.mesh.binWidth(i) ) , self.c2lr[i,:]
                         )
+      # get the cell edge current if needed for acceleration
+      if (self.acceleration == "CMFD" ):
+        self.edgeCurrent[i] += self.getCellEdgeCurrent( psiOut , direction="right")
       # find the average flux in the bin according to the spatial differencing scheme
       psiAv  = (1 + self.alpha[i][ :int( self.quadSetOrder / 2) ]) * 0.5 * psiOut[:] +\
                (1 - self.alpha[i][ :int( self.quadSetOrder / 2) ]) * 0.5 * psiIn[:]
@@ -463,6 +537,9 @@ class Slab:
       psiOut = np.divide( (np.multiply( self.c1rl[i,:] , psiIn[:]  ) + Sn[i] *
                           self.mesh.binWidth(i) ) , self.c2rl[i,:]
                         )
+      # get the cell edge current if needed for acceleration
+      if (self.acceleration == "CMFD" ):
+        self.edgeCurrent[i] += self.getCellEdgeCurrent( psiOut , direction="left")
       # find the average flux in the bin according to the spatial differencing scheme
       psiAv  = (1 + np.abs(self.alpha[i][ int( self.quadSetOrder / 2): ])) * 0.5 * psiOut[:] +\
                (1 - np.abs(self.alpha[i][ int( self.quadSetOrder / 2): ])) * 0.5 * psiIn[:]
@@ -527,7 +604,8 @@ class Slab:
     if ( self.acceleration == "CMFD"):
       self.coarseQ     =  self.getVolumeAvgToCoarseMesh( self.Q    )
       self.coarseSigT  =  self.getVolumeAvgToCoarseMesh( self.SigT )
-      #self.coarseEdgeCurrent =
+      self.coarseEdgeCurrent = np.zeros( self.coarseMesh.numBins() )
+      self.edgeCurrent       = np.zeros( self.mesh.numBins() )
 
 
     for i in range(0 , self.numBins ):
@@ -555,11 +633,11 @@ class Slab:
       self.transportSweep()
 
       if (self.acceleration == "CMFD") and self.iterationNum > 1:
-        self.oldCoarse = self.diffusion()
+        self.oldCoarse = self.coarseDiffusion()
 
       if (self.acceleration == "CMFD") and self.iterationNum > 2:
         # calculate P1 approximation to iteration errors on the coarse mesh
-        self.newCoarse = self.diffusion()
+        self.newCoarse = self.coarseDiffusion()
         # update each cell in the regular mesh
         for (i , z) in enumerate(self.mesh.z[:-1]):
           # find which coarse cell we're in
