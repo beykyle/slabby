@@ -139,7 +139,7 @@ class Mesh:
 class Slab:
   def __init__(self , mesh , materialData , method="SI" , stepMethod='diamond', loud=False ,
                acceleration='none', relaxationFactor = 1 , diagnostic=False , LaTeX=False ,
-               epsilon=1E-8, quadSetOrder=8  , out="Slab.out" , maxIter=10000):
+               epsilon=1E-8, quadSetOrder=8  , out="Slab.out" , maxIter=10000 , transmission=True):
     """
     Mandatory inputs are a mesh object and material object
 
@@ -161,6 +161,7 @@ class Slab:
     self.quadSetOrder = quadSetOrder
     self.setDifferencingScheme(stepMethod)
     self.setAccelerationMethod(acceleration)
+    self.transmission = transmission
 
     # initialize slab material
     self.mesh = mesh
@@ -338,8 +339,8 @@ class Slab:
     xint = range(0, iterNum+2 , int(round(iterNum / 10))+1 )
     self.ax3.set_xticks(xint)
     self.ax2.set_xticks(xint)
-    self.ax2.plot(self.its , self.epsilons , 'r.' , label=r"$\epsilon$")
-    self.ax2.plot([0,iterNum+1] , [self.epsilon , self.epsilon] , 'k--' , label="criterion")
+    self.ax2.semilogy(self.its , self.epsilons , 'r.' , label=r"$\epsilon$")
+    self.ax2.semilogy([0,iterNum+1] , [self.epsilon , self.epsilon] , 'k--' , label="criterion")
     self.ax3.plot(self.its , self.rhos     , 'b.' , label=r"$\rho$")
 
     if iterNum == 0:
@@ -460,11 +461,26 @@ class Slab:
     S = np.ones( self.coarseMesh.numBins() ) # this is the b in Ax=b
 
     #TODO
-    # A[0] =
+    A[0] =  - coarseSigA[0] * self.coarseMesh.binWidth(0)                                                                +  \
+            - (2/3) * ( 1/(coarseSigT[1] * self.coarseMesh.binWidth(1) + coarseSigT[0] * self.coarseMesh.binWidth(0) )   +  \
+                        1/(coarseSigT[1] * self.coarseMesh.binWidth(1) + coarseSigT[0] * self.coarseMesh.binWidth(0) ) ) +  \
+              self.getCellEdgeCurrent( self.leftBoundaryFlux  , direction="right") + D[1]
+
+    A[-1] = - coarseSigA[-1] * self.coarseMesh.binWidth(-1)                                                               + \
+            - (2/3) * ( 1/(coarseSigT[-1] * self.coarseMesh.binWidth( self.coarseMesh.numBins() - 1)                      + \
+                           coarseSigT[-2] * self.coarseMesh.binWidth( self.coarseMesh.numBins() - 1 ) )                   + \
+                      ( 1/(coarseSigT[-1] * self.coarseMesh.binWidth( self.coarseMesh.numBins() - 1)                      + \
+                           coarseSigT[-2] * self.coarseMesh.binWidth( self.coarseMesh.numBins() - 2 ) ) ) )               + \
+              self.getCellEdgeCurrent( self.leftBoundaryFlux  , direction="right") + D[1]
+
     # integrate left boundary flux and determine B0
-    B[0]  = self.getCellEdgeCurrent( self.leftBoundaryFlux  , direction="right")
+    B[0]  = (2/3) * ( 1/(coarseSigT[1] * self.coarseMesh.binWidth(1) + coarseSigT[0] * self.coarseMesh.binWidth(0) ) ) + \
+            self.getCellEdgeCurrent( self.leftBoundaryFlux  , direction="right")
+
     # integrate right boundary flux and determine BK
-    B[-1] = self.getCellEdgeCurrent( self.rightBoundaryFlux  , direction="left")
+    B[-1]  = (2/3) * ( 1/(coarseSigT[-1] * self.coarseMesh.binWidth( self.coarseMesh.numBins() - 1 )     + \
+                          coarseSigT[-2] * self.coarseMesh.binWidth( self.coarseMesh.numBins() - 2 ) ) ) + \
+             self.getCellEdgeCurrent( self.leftBoundaryFlux  , direction="right")
 
     for i in range( 1 ,  self.coarseMesh.numBins() - 1 ):
       A[i] =   - coarseSigA[i] * self.coarseMesh.binWidth(i)                                                                    +  \
@@ -548,6 +564,8 @@ class Slab:
       # set the incident flux on the next bin to exiting flux from this bin
       psiIn = psiOut
 
+    return(psiOut)
+
   def estimateRho(self , oldError):
     currentError = self.scalarFlux - self.oldScalarFlux
     rho = np.sqrt( np.dot(currentError , currentError ) / (np.dot(oldError , oldError ) ) )
@@ -630,7 +648,7 @@ class Slab:
       # run a transport sweep
       oldError = self.scalarFlux - self.oldScalarFlux
       self.oldScalarFlux = np.copy( self.scalarFlux[:] )
-      self.transportSweep()
+      psiOut = self.transportSweep()
 
       if (self.acceleration == "CMFD") and self.iterationNum > 1:
         self.oldCoarse = self.coarseDiffusion()
@@ -664,6 +682,11 @@ class Slab:
         break
 
     # the simulation is done, write the scalar flux to the output file
+    if (self.transmission == True):
+      print( "right: " + '{:3.4E}'.format( self.getCellEdgeCurrent( psiOut , direction="right" )  ) )
+      print( "left: "  + '{:3.4E}'.format( self.getCellEdgeCurrent( self.leftBoundaryFlux , direction="right" ) ) )
+      print( "Transmission probability: " + '{:3.4E}'.format( self.getCellEdgeCurrent( psiOut , direction="right" )  /
+                                                              self.getCellEdgeCurrent( self.leftBoundaryFlux , direction="right" ) ) )
     with open(self.out , "a") as output:
       output.write("\r\n x , Scalar Flux: \r\n")
       for i , val in enumerate(self.scalarFlux):
@@ -773,7 +796,7 @@ def getSlabFromInput(inputfile):
 
   if 'Numerical Settings' in conf:
     stepMethod    =              conf['Numerical Settings']['stepMethod'].strip()
-    DSA           =              conf['Numerical Settings']['DSA'].strip()
+    DSA           =              conf['Numerical Settings']['acceleration'].strip()
     epsilon       =  float(      conf['Numerical Settings']['convergence'].strip()  )
     quadSetOrder  =  int(        conf['Numerical Settings']['quadSetOrder'].strip() )
     if quadSetOrder % 2 != 0:
@@ -815,9 +838,6 @@ def getSlabFromInput(inputfile):
 
   if (DSA == "CMFD"):
     slab.addCoarseMesh( getCoarseMeshFromInput( conf ) )
-
-
-
 
   return(slab)
 
