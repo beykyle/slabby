@@ -683,8 +683,8 @@ class Slab:
 
     # the simulation is done, write the scalar flux to the output file
     if (self.transmission == True):
-      print( "right: " + '{:3.4E}'.format( self.getCellEdgeCurrent( psiOut , direction="right" )  ) )
-      print( "left: "  + '{:3.4E}'.format( self.getCellEdgeCurrent( self.leftBoundaryFlux , direction="right" ) ) )
+      #print( "right: " + '{:3.4E}'.format( self.getCellEdgeCurrent( psiOut , direction="right" )  ) )
+      #print( "left: "  + '{:3.4E}'.format( self.getCellEdgeCurrent( self.leftBoundaryFlux , direction="right" ) ) )
       print( "Transmission probability: " + '{:3.4E}'.format( self.getCellEdgeCurrent( psiOut , direction="right" )  /
                                                               self.getCellEdgeCurrent( self.leftBoundaryFlux , direction="right" ) ) )
     with open(self.out , "a") as output:
