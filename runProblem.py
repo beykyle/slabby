@@ -167,8 +167,8 @@ def getInputFromFile(inputfile):
   slabs = []
   settings = []
 
-  for mesh in meshes:
-    for quadSetOrder in quadSetOrders:
+  for quadSetOrder in quadSetOrders:
+    for mesh in meshes:
       settings.append( (mesh , quadSetOrder) )
       slabs.append(  Slab(mesh , material , loud=loud , diagnostic=diagnostic , quadSetOrder=quadSetOrder ,
                 epsilon=epsilon , out=outputFi , stepMethod=stepMethod , acceleration=DSA ) )
@@ -191,6 +191,20 @@ def writeOutput(tr , rho , itera , settings):
   print("Radius of convergence   : " + '{:1.6E}'.format(rho) )
   print("Number of iterations    : " + str(itera) )
 
+
+def writeTable(vec , form , side):
+  # assuming assumptions
+  string = side[0]
+  for i in range(0,len(vec)):
+    if (i+1)%6 != 0:
+      string = string + form.format(vec[i]) + " & "
+    else:
+      string = string + form.format(vec[i]) + r"\\"
+      print(string)
+      if (i < len(vec) - 1):
+        string = side[int((i+1)/6)]
+
+
 # -------------------------------------------------------------------------------------- #
 #
 #  main
@@ -206,10 +220,22 @@ if __name__ == '__main__':
     settings , slabs = getInputFromFile( inputFile )
   # run the slab
   tr  = []
-  rho = []
+  rh  = []
   ite = []
   for i , slab in enumerate(slabs):
     with nostdout():
       transmission , rho , itera = slab.run()
+      tr.append(transmission)
+      rh.append(rho)
+      ite.append(itera)
     writeOutput( transmission , rho , itera  , settings[i] )
+
+
+  print("\n")
+  writeTable(tr , '{:1.3E}' , ["2 & " , "4 & " , "8 & " ,"16 & " , "32 & "  ] )
+  print("\n")
+  writeTable(rh , '{:1.3E}' , ["2 & " , "4 & " , "8 & " ,"16 & " , "32 & "  ] )
+  print("\n")
+  writeTable(ite, '{:d}'    , ["2 & " , "4 & " , "8 & " ,"16 & " , "32 & "  ] )
+  print("\n")
 
