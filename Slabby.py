@@ -228,7 +228,7 @@ class Slab:
 
   def setAccelerationMethod(self , acceleration):
     # determine acceleration method
-    if acceleration == 'CMFD' or acceleration == 'none':
+    if acceleration == 'CMFD' or acceleration == 'none' or acceleration == 'idsa':
       self.acceleration = acceleration
     else:
       raise NotImplementedError
@@ -424,12 +424,43 @@ class Slab:
 
     return( coarseEdgeCurrent )
 
+  def cellCenteredDiffusion(self):
+    # calculate cell edge total cross section and cell edge binWidth
+    if self.iterationNum == 2:
+      self.cellEdgeBinWidth = np.ones( self.mesh.numBins() )
+      self.cellEdgeSigT = np.ones( self.mesh.numBins() )
+      self.cellEdgeSigT[0]  = self.SigT[0]
+      self.cellEdgeSigT[-1] = self.SigT[-1]
+      self.cellEdgeBinWidth[0]  = 0.5 * self.mesh.binWidth(0)
+      self.cellEdgeBinWidth[-1] = 0.5 * self.mesh.binWidth( self.mesh.numBins() -1 )
+      for i in range(0, self.mesh.numBins() -1):
+        self.cellEdgeSigT[i] = ( self.mesh.binWidth(i) * self.SigT[i] + self.mesh.binWidth(i+1) * self.SigT[i+1] ) / \
+                               (self.mesh.binWidth(i) + self.mesh.binWidth(i+1))
+        self.cellEdgeBinWidth[i] =  0.5 * (self.mesh.binWidth(i) +  self.mesh.binWidth(i+1))
+
+    # calculate tridiagonal matrix elements
+    A = np.zeros( self.mesh.numBins() ) # middle diagonal
+    B = np.zeros( self.mesh.numBins() ) # outer diagonal
+    S = np.zeros( self.mesh.numBins() ) # this is the b in Ax=b
+
+    A[0]   =  1 / (3 * self.cellEdgeSigT[0] * self.cellEdgeBinWidth[0])     +  \
+             (self.SigT[0] - self.SigS[0]) * self.mesh.binWidth(0)
+    B[0]   = -1 / (3 * self.cellEdgeSigT[0] * self.cellEdgeBinWidth[0])
+    B[-1]  = -1 / (3 * self.cellEdgeSigT[-1] * self.cellEdgeBinWidth[-1])
+    S[0]   =  self.Q[0] * self.mesh.binWidth(0)
+
+    for i in range( 1 ,  self.mesh.numBins() - 1 ):
+      A[i] = 1 / (3 * self.cellEdgeSigT[i] * self.cellEdgeBinWidth[i])     +  \
+             1 / (3 * self.cellEdgeSigT[i-1] * self.cellEdgeBinWidth[i-1]) +  \
+             (self.SigT[i] - self.SigS[i]) * self.mesh.binWidth(i)
+      B[i] = -1 / (3 * self.cellEdgeSigT[i] * self.cellEdgeBinWidth[i])
+      S[i] = self.Q[i] * self.mesh.binWidth(i)
+
+    return( TDMAsolver(A , B , B , S ) )
 
   def coarseDiffusion(self ):
     # set the flux weighted and volume weighted scalar fluxes and cross sections
     coarseScalarFlux  =            self.getVolumeAvgToCoarseMesh( self.scalarFlux )
-    #print( self.scalarFlux )
-    #print( coarseScalarFlux )
     coarseSigT        = np.divide( self.getVolumeAvgToCoarseMesh( np.multiply( self.scalarFlux , self.SigT) )  ,
                         coarseScalarFlux )
     coarseSigA        = np.divide( self.getVolumeAvgToCoarseMesh( np.multiply( self.scalarFlux , self.SigT - self.SigS) )  ,
@@ -460,7 +491,6 @@ class Slab:
     B = np.ones( self.coarseMesh.numBins() ) # outer diagonal
     S = np.ones( self.coarseMesh.numBins() ) # this is the b in Ax=b
 
-    #TODO
     A[0] =  - coarseSigA[0] * self.coarseMesh.binWidth(0)                                                                +  \
             - (2/3) * ( 1/(coarseSigT[1] * self.coarseMesh.binWidth(1) + coarseSigT[0] * self.coarseMesh.binWidth(0) )   +  \
                         1/(coarseSigT[1] * self.coarseMesh.binWidth(1) + coarseSigT[0] * self.coarseMesh.binWidth(0) ) ) +  \
@@ -625,7 +655,6 @@ class Slab:
       self.coarseEdgeCurrent = np.zeros( self.coarseMesh.numBins() )
       self.edgeCurrent       = np.zeros( self.mesh.numBins() )
 
-
     for i in range(0 , self.numBins ):
       # left to right
       self.c1lr[i,:] = (self.mu[N:] - (1 - self.alpha[i][N:]) * self.SigT[i] *
@@ -652,6 +681,9 @@ class Slab:
 
       if (self.acceleration == "CMFD") and self.iterationNum > 1:
         self.oldCoarse = self.coarseDiffusion()
+
+      if (self.acceleration == 'idsa' and self.iterationNum >= 2):
+        self.scalarFlux = self.scalarFlux + self.cellCenteredDiffusion()
 
       if (self.acceleration == "CMFD") and self.iterationNum > 2:
         # calculate P1 approximation to iteration errors on the coarse mesh
@@ -681,6 +713,7 @@ class Slab:
       if self.iterationNum + 1 == self.maxIter:
         break
 
+    print( "Converged in " + str(self.iterationNum) + " iterations" )
     # the simulation is done, write the scalar flux to the output file
     if (self.transmission == True):
       #print( "right: " + '{:3.4E}'.format( self.getCellEdgeCurrent( psiOut , direction="right" )  ) )
