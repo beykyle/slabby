@@ -13,7 +13,6 @@ from matplotlib    import pyplot as plt
 
 __author__ = "Kyle Beyer"
 __version__ = "1.0.1"
-__maintainer__ = "Kyle Beyer"
 __email__ = "beykyle@umich.edu"
 __status__ = "Development"
 
@@ -716,11 +715,12 @@ class Slab:
 
     print( "Converged in " + str(self.iterationNum) + " iterations" )
     # the simulation is done, write the scalar flux to the output file
+    transmission =  self.getCellEdgeCurrent( self.leakPsi , direction="right" )  / \
+                    self.getCellEdgeCurrent( self.leftBoundaryFlux , direction="right" )
     if (self.transmission == True):
       #print( "right: " + '{:3.4E}'.format( self.getCellEdgeCurrent( psiOut , direction="right" )  ) )
       #print( "left: "  + '{:3.4E}'.format( self.getCellEdgeCurrent( self.leftBoundaryFlux , direction="right" ) ) )
-      print( "Transmission probability: " + '{:3.4E}'.format( self.getCellEdgeCurrent( self.leakPsi , direction="right" )  /
-                                                              self.getCellEdgeCurrent( self.leftBoundaryFlux , direction="right" ) ) )
+      print( "Transmission probability: " + '{:3.4E}'.format( transmission) )
     with open(self.out , "a") as output:
       output.write("\r\n x , Scalar Flux: \r\n")
       for i , val in enumerate(self.scalarFlux):
@@ -730,14 +730,13 @@ class Slab:
         else:
           output.write('{:1.4f}'.format( i * self.width / self.numBins ) +
                       " , " + '{:1.7f}'.format(val) + "\r\n")
+    return(transmission , self.rho , self.iterationNum)
 
 # -------------------------------------------------------------------------------------- #
 #
 #  input parsing functions
 #
 # -------------------------------------------------------------------------------------- #
-
-
 
 def booleanize(value):
     """Return value as a boolean."""
@@ -890,5 +889,5 @@ if __name__ == '__main__':
   slab = getSlabFromInput(inputFile)
 
   # run the slab
-  slab.run()
+  t , r , n  = slab.run()
 
