@@ -567,6 +567,9 @@ class Slab:
       # set the incident flux on the next bin to exiting flux from this bin
       psiIn = psiOut
 
+    if (self.transmission == True):
+      self.leakPsi = psiOut
+
     # find the right boundary flux
     if (self.rightBoundaryType == "reflecting"):
       psiIn = self.rightBoundaryFlux + psiOut[::-1] # reverse psiOut array
@@ -593,8 +596,6 @@ class Slab:
       self.scalarFlux[i] += self.getScalarFlux(psiAv , direction="left")
       # set the incident flux on the next bin to exiting flux from this bin
       psiIn = psiOut
-
-    return(psiOut)
 
   def estimateRho(self , oldError):
     currentError = self.scalarFlux - self.oldScalarFlux
@@ -677,7 +678,7 @@ class Slab:
       # run a transport sweep
       oldError = self.scalarFlux - self.oldScalarFlux
       self.oldScalarFlux = np.copy( self.scalarFlux[:] )
-      psiOut = self.transportSweep()
+      self.transportSweep()
 
       if (self.acceleration == "CMFD") and self.iterationNum > 1:
         self.oldCoarse = self.coarseDiffusion()
@@ -718,7 +719,7 @@ class Slab:
     if (self.transmission == True):
       #print( "right: " + '{:3.4E}'.format( self.getCellEdgeCurrent( psiOut , direction="right" )  ) )
       #print( "left: "  + '{:3.4E}'.format( self.getCellEdgeCurrent( self.leftBoundaryFlux , direction="right" ) ) )
-      print( "Transmission probability: " + '{:3.4E}'.format( self.getCellEdgeCurrent( psiOut , direction="right" )  /
+      print( "Transmission probability: " + '{:3.4E}'.format( self.getCellEdgeCurrent( self.leakPsi , direction="right" )  /
                                                               self.getCellEdgeCurrent( self.leftBoundaryFlux , direction="right" ) ) )
     with open(self.out , "a") as output:
       output.write("\r\n x , Scalar Flux: \r\n")
