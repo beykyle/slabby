@@ -23,24 +23,31 @@ __status__ = "Development"
 # -------------------------------------------------------------------------------------- #
 
 ## Tri Diagonal Matrix Algorithm(a.k.a Thomas algorithm) solver
+## from here: https://en.wikibooks.org/wiki/Algorithm_Implementation/Linear_Algebra/Tridiagonal_matrix_algorithm#Python
 def TDMAsolver(a, b, c, d):
-  nf = len(a)     # number of equations
-  ac, bc, cc, dc = map(np.array, (a, b, c, d))     # copy the array
-  for it in range(1, nf):
-    mc = ac[it]/bc[it-1]
-    bc[it] = bc[it] - mc*cc[it-1]
-    dc[it] = dc[it] - mc*dc[it-1]
+    """a: lower , b: middle, c: upper """
+    n = len(a)
+    ac, bc, cc, dc = map(np.array, (a, b, c, d))
+    xc = []
+    for j in range(2, n):
+        if(bc[j - 1] == 0):
+            ier = 1
+            print(bc)
+            print("in TDMAsolver: bc cannot have 0s")
+            sys.exit()
+        ac[j] = ac[j]/bc[j-1]
+        bc[j] = bc[j] - ac[j]*cc[j-1]
+    if(b[n-1] == 0):
+        ier = 1
+        print("in TDMAsolver: b cannot have 0s")
+        sys.exit()
+    for j in range(2, n):
+        dc[j] = dc[j] - ac[j]*dc[j-1]
+    dc[n-1] = dc[n-1]/bc[n-1]
+    for j in range(n-2, -1, -1):
+        dc[j] = (dc[j] - cc[j]*dc[j+1])/bc[j]
 
-  xc = ac
-  xc[-1] = dc[-1]/bc[-1]
-
-  for il in range(nf-2, -1, -1):
-    xc[il] = (dc[il]-cc[il]*xc[il+1])/bc[il]
-
-  del bc, cc, dc  # delete variables from memory
-
-  return( xc )
-
+    return(dc)
 
 # -------------------------------------------------------------------------------------- #
 #
@@ -104,7 +111,7 @@ class Mesh:
       zmin corresponds to the left edge of the first bin
       zmax corresponds to the right edge of the last bin
       """
-      self.z = np.linspace(zmin , zmax , num=(numBins+1))
+      self.z = np.linspace(zmin , zmax , num=(numBins) + 1 )
 
     else:
       """
@@ -127,7 +134,7 @@ class Mesh:
     return(self.z[-1] - self.z[0])
 
   def numBins(self):
-    return(len(self.z) - 1)
+    return( len(self.z) - 1)
 
 # -------------------------------------------------------------------------------------- #
 #
@@ -414,6 +421,44 @@ class Slab:
     # angular moments of the scalar flux
     return( 0.5 * ( np.multiply(self.SigS , self.scalarFlux) + self.Q ) )
 
+  def getCellEdgeValues(self):
+    # get the cell edge cross sections and cell widths
+    self.cellEdgeSigT     = np.zeros( self.mesh.numBins() + 1 )
+    self.cellEdgeBinWidth = np.zeros( self.mesh.numBins() + 1 )
+
+    for i in range(1,self.mesh.numBins() ):
+      self.cellEdgeSigT[i]     = (self.SigT[i-1] * self.mesh.binWidth(i-1) + self.SigT[i] * self.mesh.binWidth(i) ) /\
+                                  (self.mesh.binWidth(i-1) + self.mesh.binWidth(i) )
+      self.cellEdgeBinWidth[i] = 0.5 * (self.mesh.binWidth(i-1) + self.mesh.binWidth(i)  )
+
+    self.cellEdgeBinWidth[0]                   = 0.5 * self.mesh.binWidth(0)
+    self.cellEdgeBinWidth[self.mesh.numBins()] = 0.5 * self.mesh.binWidth(self.mesh.numBins() -1)
+
+    self.cellEdgeSigT[0]                   = 0.5 * self.SigT[0]
+    self.cellEdgeSigT[self.mesh.numBins()] = 0.5 * self.SigT[ self.mesh.numBins() -1 ]
+
+  def cellCenteredDiffusion(self):
+    # set up the linear system
+    A = np.zeros( self.mesh.numBins() )
+    B = np.zeros( self.mesh.numBins() )
+    S = np.multiply( self.Q , [ self.mesh.binWidth(i) for i in range(0,self.mesh.numBins()) ] )
+
+    for i in range(0, self.mesh.numBins()):
+      A[i] =  1 / (3 * self.cellEdgeSigT[i+1] * self.cellEdgeBinWidth[i+1] ) + \
+              1 / (3 * self.cellEdgeSigT[i]   * self.cellEdgeBinWidth[i]   ) + \
+              (self.SigT[i] - self.SigS[i]) * self.mesh.binWidth(i)
+      B[i] = -1 / (3 * self.cellEdgeSigT[i+1] * self.cellEdgeBinWidth[i+1] )
+
+    if ( self.rightBoundaryType == "reflecting" ):
+      A[-1] =  1
+      B[-1] = -1
+
+    if ( self.leftBoundaryType == "reflecting" ):
+      A[0] =  1
+      B[0] = -1
+
+    return( TDMAsolver(B , A , B , S ) )
+
   def getCoarseEdgeCurrent(self):
     fineBin = 0
     coarseEdgeCurrent = np.zeros( self.coarseMesh.numBins() )
@@ -422,40 +467,6 @@ class Slab:
       coarseEdgeCurrent[i] = self.edgeCurrent[fineBin]
 
     return( coarseEdgeCurrent )
-
-  def cellCenteredDiffusion(self):
-    # calculate cell edge total cross section and cell edge binWidth
-    if self.iterationNum == 2:
-      self.cellEdgeBinWidth = np.ones( self.mesh.numBins() )
-      self.cellEdgeSigT = np.ones( self.mesh.numBins() )
-      self.cellEdgeSigT[0]  = self.SigT[0]
-      self.cellEdgeSigT[-1] = self.SigT[-1]
-      self.cellEdgeBinWidth[0]  = 0.5 * self.mesh.binWidth(0)
-      self.cellEdgeBinWidth[-1] = 0.5 * self.mesh.binWidth( self.mesh.numBins() -1 )
-      for i in range(0, self.mesh.numBins() -1):
-        self.cellEdgeSigT[i] = ( self.mesh.binWidth(i) * self.SigT[i] + self.mesh.binWidth(i+1) * self.SigT[i+1] ) / \
-                               (self.mesh.binWidth(i) + self.mesh.binWidth(i+1))
-        self.cellEdgeBinWidth[i] =  0.5 * (self.mesh.binWidth(i) +  self.mesh.binWidth(i+1))
-
-    # calculate tridiagonal matrix elements
-    A = np.zeros( self.mesh.numBins() ) # middle diagonal
-    B = np.zeros( self.mesh.numBins() ) # outer diagonal
-    S = np.zeros( self.mesh.numBins() ) # this is the b in Ax=b
-
-    A[0]   =  1 / (3 * self.cellEdgeSigT[0] * self.cellEdgeBinWidth[0])     +  \
-             (self.SigT[0] - self.SigS[0]) * self.mesh.binWidth(0)
-    B[0]   = -1 / (3 * self.cellEdgeSigT[0] * self.cellEdgeBinWidth[0])
-    B[-1]  = -1 / (3 * self.cellEdgeSigT[-1] * self.cellEdgeBinWidth[-1])
-    S[0]   =  self.Q[0] * self.mesh.binWidth(0)
-
-    for i in range( 1 ,  self.mesh.numBins() - 1 ):
-      A[i] = 1 / (3 * self.cellEdgeSigT[i] * self.cellEdgeBinWidth[i])     +  \
-             1 / (3 * self.cellEdgeSigT[i-1] * self.cellEdgeBinWidth[i-1]) +  \
-             (self.SigT[i] - self.SigS[i]) * self.mesh.binWidth(i)
-      B[i] = -1 / (3 * self.cellEdgeSigT[i] * self.cellEdgeBinWidth[i])
-      S[i] = self.Q[i] * self.mesh.binWidth(i)
-
-    return( TDMAsolver(A , B , B , S ) )
 
   def coarseDiffusion(self ):
     # set the flux weighted and volume weighted scalar fluxes and cross sections
@@ -519,7 +530,7 @@ class Slab:
       B[i] =   (2/3) * ( 1/(coarseSigT[i+1] * self.coarseMesh.binWidth(i+1) + coarseSigT[i] * self.coarseMesh.binWidth(i) ) )   + D[i]
       S[i] =   self.coarseQ[i] * self.coarseMesh.binWidth(i)
 
-    return( TDMAsolver(A , B , B , S ) )
+    return( TDMAsolver(B , A , B , S ) )
 
   def getVolumeAvgToCoarseMesh( self , vec ):
     # given a vector over the regular mesh, returns a vector over the coarse mesh
@@ -615,6 +626,7 @@ class Slab:
     but it allows for drastic speed improvements in the 1D case
 
     """
+    self.getCellEdgeValues()
     # precompute alphas - constant matrix discretized over space and angle
     N = int(self.quadSetOrder / 2)
     if self.stepMethod == "diamond":
