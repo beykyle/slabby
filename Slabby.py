@@ -82,20 +82,21 @@ class Material:
         elif header.strip().rstrip("\r\n") == "Q":
           qInd = i
 
-      data = dat.readlines()[1:]
+      data = dat.readlines()
 
-    self.numRegions  = len(data)
+    self.numRegions  = len(data) - 1
     self.Q        = np.zeros(self.numRegions)
     self.SigT     = np.zeros(self.numRegions)
-    self.sigs     = np.zeros(self.numregions)
-    self.z        = np.zeros(self.numregions)
+    self.SigS     = np.zeros(self.numRegions)
+    self.z        = np.zeros(self.numRegions+1)
 
     for i , line in enumerate(data):
       line  = [x.strip().rstrip("\n\r") for x in  line.split(",")]
-      self.Q[i]    = float(line[qInd])
-      self.SigT[i] = float(line[tInd])
-      self.SigS[i] = float(line[sInd])
       self.z[i]    = float(line[zInd])
+      if i < len(data)-1:
+        self.Q[i]    = float(line[qInd])
+        self.SigT[i] = float(line[tInd])
+        self.SigS[i] = float(line[sInd])
 
 # -------------------------------------------------------------------------------------- #
 #
@@ -207,15 +208,14 @@ class Slab:
 
   def interpolateMaterialToMesh(self , material):
     Q , SigT , SigS = np.zeros(self.numBins), np.zeros(self.numBins), np.zeros(self.numBins)
+    matchIndex = 0
     for i in range(0,len(self.mesh.z)-1):
-      # find z in the middle of the mesh bin
-      z = self.mesh.z[i] + self.mesh.binWidth(i)*0.5
-      dist = np.finfo(z.dtype).max
-      for j in range(0,len(material.z)-1):
-        newdist = np.fabs(material.z[j] - z)
-        if newdist < dist:
-          dist = newdist
+      for j in range(0, len(material.z) - 1):
+        if (  self.mesh.z[i+1] < material.z[j+1] and self.mesh.z[i] > material.z[j]  ):
           matchIndex = j
+        elif( self.mesh.z[i+1] - material.z[j+1] >  self.mesh.z[i] -  material.z[j] and
+            self.mesh.z[i] > material.z[j]      ):
+          matchIndex = j + 1
 
       Q[i]    = material.Q[matchIndex]
       SigT[i] = material.SigT[matchIndex]
@@ -267,7 +267,7 @@ class Slab:
     elif self.rightBoundaryType == "reflecting":
       pass
     else:
-      print("Invalid boundary type: " + self.leftBoundaryType + " for left boundary! \r\n")
+      print("Invalid boundary type: " + self.rightBoundaryType + " for right boundary! \r\n")
       sys.exit()
 
   def setLeftBoundaryFlux(self , leftFlux , *args , **kwargs):
@@ -282,7 +282,7 @@ class Slab:
       self.leftBoundaryFlux[0] = leftFlux # set mu=0 direction to the given flux
     elif self.leftBoundaryType == "isotropic":
       for i , val in enumerate(self.leftBoundaryFlux):
-        self.leftBoundaryFlux[i] = leftFlux / (4 * np.pi) * self.weights[i]
+        self.leftBoundaryFlux[i] = leftFlux
     elif self.leftBoundaryType == "vacuum":
       pass
     else:
