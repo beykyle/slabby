@@ -453,11 +453,11 @@ class Slab:
       A[-1] =  1
       B[-1] = -1
 
-    if ( self.leftBoundaryType == "reflecting" ):
-      A[0] =  1
-      B[0] = -1
+    if ( self.leftBoundaryType != "vacuum" ):
+      A[0] = 1
+      B[0] = 4 / (4 + 3 * self.SigT[0] * self.mesh.binWidth(0) )
 
-    return( TDMAsolver(B , A , B , S ) )
+    return( 0.01 * TDMAsolver(B , A , B , S ) )
 
   def getCoarseEdgeCurrent(self):
     fineBin = 0
