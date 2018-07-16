@@ -31,9 +31,15 @@ def omega( tau , s ):
 
   return(val)
 
+def printDat( tt , oo  ,i):
+  with open( str(i) + ".txt" , "w") as out:
+    for t , o in zip(tt,oo):
+      out.write('{:1.4E}'.format(t) + " & " + '{:1.4E}'.format(o) + r"\\" + "\n")
+
 if __name__ == '__main__':
-    tau   = np.linspace(0, 2 * np.pi, 500)
+    tau   = np.linspace(0, 2 * np.pi, 100)
     SigTh = [ 3/n for n in range(1,16) ]
+    m  = []
 
     for i ,  s in enumerate(SigTh):
       o = omega(tau , s)
@@ -42,14 +48,16 @@ if __name__ == '__main__':
       plt.ylabel("$\omega$")
       plt.xlim([0 , 2 * np.pi])
       xx = [i for i , j in enumerate(o) if j == max(o) ]
+      m.append(max(o))
       plt.plot( tau[xx[0]] , max(o) , 'dr' , label=r"$|\omega{(\tau , 3/" + str(i+1)  + " )}|_\infty$" )
       #plt.title(r"$\Sigma_t h =$ 3/" + str(i+1) )
       plt.tight_layout()
       plt.legend()
-      plt.savefig( str(i) + ".png"  )
+#      plt.savefig( str(i) + ".png"  )
       plt.cla()
 #      plt.show()
 
+    printDat(SigTh , m , i)
 
 
 
