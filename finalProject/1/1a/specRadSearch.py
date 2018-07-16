@@ -26,9 +26,8 @@ def omega_n( tau , s ,  m ):
 
 def omega( tau , s ):
   val  = 0
-  for m , wgt in zip(mu , weights):
-    val = val + omega_n( tau , s , m ) * wgt
-
+  for m , wgt in zip(mu[8:] , weights[8:]):
+    val = val + np.fabs(omega_n( tau , s , m )) * wgt
   return(val)
 
 def printDat( tt , oo  ,i):
@@ -53,7 +52,7 @@ if __name__ == '__main__':
       #plt.title(r"$\Sigma_t h =$ 3/" + str(i+1) )
       plt.tight_layout()
       plt.legend()
-#      plt.savefig( str(i) + ".png"  )
+      plt.savefig( str(i) + ".png"  )
       plt.cla()
 #      plt.show()
 

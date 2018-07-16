@@ -229,6 +229,8 @@ if __name__ == '__main__':
       ite.append(itera)
     writeOutput( transmission , rho , itera  , settings[i] )
 
+  print(rh)
+
 
   #print("\n")
   #writeTable(tr , '{:1.3E}' , ["2 & " , "4 & " , "8 & " ,"16 & " , "32 & "  ] )
