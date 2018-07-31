@@ -468,7 +468,7 @@ class Slab:
 
     return( coarseEdgeCurrent )
 
-  def coarseDiffusion(self ):
+  def coarseDiffusion(self):
     # set the flux weighted and volume weighted scalar fluxes and cross sections
     coarseScalarFlux  =            self.getVolumeAvgToCoarseMesh( self.scalarFlux )
     coarseSigT        = np.divide( self.getVolumeAvgToCoarseMesh( np.multiply( self.scalarFlux , self.SigT) )  ,
@@ -553,6 +553,8 @@ class Slab:
     # precompute scatter source for the isotropic problem (only discretized over space)
     Sn = self.getScatterSource()
 
+    scalarFlux = np.zeros( self.mesh.numBins() )
+
     # find the left boundary flux
     psiIn = self.leftBoundaryFlux
 
@@ -562,10 +564,10 @@ class Slab:
 
     # sweep left to right
     for i in range(0,self.numBins):
+      c1lr = self.mu[N:] - (1 - self.alpha[i][N:]) * self.SigT[i] * self.mesh.binWidth(i) / 2
+      c2lr = self.mu[N:] + (1 + self.alpha[i][N:]) * self.SigT[i] * self.mesh.binWidth(i) / 2
       # find the upstream flux at the right bin boundary
-      psiOut = np.divide( (np.multiply( self.c1lr[i,:] , psiIn[:]  ) + Sn[i] *
-                          self.mesh.binWidth(i) ) , self.c2lr[i,:]
-                        )
+      psiOut = np.divide( (np.multiply( c1lr , psiIn[:]  ) + Sn[i] * self.mesh.binWidth(i) ) , c2lr )
       # get the cell edge current if needed for acceleration
       if (self.acceleration == "CMFD" ):
         self.edgeCurrent[i] += self.getCellEdgeCurrent( psiOut , direction="right")
@@ -573,7 +575,7 @@ class Slab:
       psiAv  = (1 + self.alpha[i][ :int( self.quadSetOrder / 2) ]) * 0.5 * psiOut[:] +\
                (1 - self.alpha[i][ :int( self.quadSetOrder / 2) ]) * 0.5 * psiIn[:]
       # find the scalar flux in this spatial bin from right-moving flux
-      self.scalarFlux[i] = self.getScalarFlux(psiAv , direction="right")
+      scalarFlux[i] = self.getScalarFlux(psiAv , direction="right")
       # set the incident flux on the next bin to exiting flux from this bin
       psiIn = psiOut
 
@@ -582,7 +584,7 @@ class Slab:
 
     # find the right boundary flux
     if (self.rightBoundaryType == "reflecting"):
-      psiIn = self.rightBoundaryFlux + psiOut[::-1] # reverse psiOut array
+      psiIn = psiOut
     else:
       psiIn = self.rightBoundaryFlux
 
@@ -592,10 +594,10 @@ class Slab:
 
     # sweep right to left
     for i in range(self.numBins - 1 , -1 , -1):
+      c1rl = np.fabs(self.mu[:N]) - (1 - np.fabs(self.alpha[i][:N])) * self.SigT[i] * self.mesh.binWidth(i) / 2
+      c2rl = np.fabs(self.mu[:N]) + (1 + np.fabs(self.alpha[i][:N])) * self.SigT[i] * self.mesh.binWidth(i) / 2
       # find the upstream flux at the left bin boundary
-      psiOut = np.divide( (np.multiply( self.c1rl[i,:] , psiIn[:]  ) + Sn[i] *
-                          self.mesh.binWidth(i) ) , self.c2rl[i,:]
-                        )
+      psiOut = np.divide( (np.multiply( c1rl , psiIn[:]  ) + Sn[i] * self.mesh.binWidth(i) ) , c2rl)
       # get the cell edge current if needed for acceleration
       if (self.acceleration == "CMFD" ):
         self.edgeCurrent[i] += self.getCellEdgeCurrent( psiOut , direction="left")
@@ -603,13 +605,15 @@ class Slab:
       psiAv  = (1 + np.abs(self.alpha[i][ int( self.quadSetOrder / 2): ])) * 0.5 * psiOut[:] +\
                (1 - np.abs(self.alpha[i][ int( self.quadSetOrder / 2): ])) * 0.5 * psiIn[:]
       # find the scalar flux in this spatial bin from left-moving flux
-      self.scalarFlux[i] += self.getScalarFlux(psiAv , direction="left")
+      scalarFlux[i] += self.getScalarFlux(psiAv , direction="left")
       # set the incident flux on the next bin to exiting flux from this bin
       psiIn = psiOut
 
+    return(scalarFlux)
+
   def estimateRho(self , oldError):
     currentError = self.scalarFlux - self.oldScalarFlux
-    rho = np.sqrt( np.dot(currentError , currentError  / (np.dot(oldError , oldError ) ) )
+    rho = np.sqrt( np.dot(currentError , currentError)  / (np.dot(oldError , oldError ) ) )
     return(rho)
     #return( np.sqrt( np.dot( self.scalarFlux , self.scalarFlux) / np.dot(self.oldScalarFlux , self.oldScalarFlux) )  )
 
@@ -646,21 +650,14 @@ class Slab:
         self.alpha[i][:] *=  1 / np.tanh(tau / 2)  - 2 / tau
 
     # inital scalar flux guess
-    self.scalarFlux    = np.random.rand(self.numBins)*99.9
-    self.oldScalarFlux = np.random.rand(self.numBins)*100
-    self.iterationNum = 0
+    self.scalarFlux    = np.zeros(self.numBins)
+    self.oldScalarFlux = np.zeros(self.numBins)
+    self.iterationNum  = 0
     self.clearOutput()
 
     # call the plotter
     if self.loud == True:
       self.plotScalarFlux(self.iterationNum)
-
-    # precompute coefficients for solving for upstream SI
-    # coefficients form a constant matrix, discretized over both angle and space
-    self.c1lr = np.zeros((self.numBins , N ))
-    self.c2lr = np.zeros((self.numBins , N ))
-    self.c1rl = np.zeros((self.numBins , N ))
-    self.c2rl = np.zeros((self.numBins , N ))
 
     if ( self.acceleration == "CMFD"):
       self.coarseQ     =  self.getVolumeAvgToCoarseMesh( self.Q    )
@@ -668,29 +665,13 @@ class Slab:
       self.coarseEdgeCurrent = np.zeros( self.coarseMesh.numBins() )
       self.edgeCurrent       = np.zeros( self.mesh.numBins() )
 
-    for i in range(0 , self.numBins ):
-      # left to right
-      self.c1lr[i,:] = (self.mu[N:] - (1 - self.alpha[i][N:]) * self.SigT[i] *
-                        self.mesh.binWidth(i) / 2
-                       )[:]
-      self.c2lr[i,:] = (self.mu[N:] + (1 + self.alpha[i][N:]) * self.SigT[i] *
-                        self.mesh.binWidth(i) / 2
-                       )[:]
-      # right to left
-      self.c1rl[i,:] = (np.abs(self.mu[:N]) - (1 - np.abs(self.alpha[i][:N])) * self.SigT[i] *
-                        self.mesh.binWidth(i) / 2
-                       )[:]
-      self.c2rl[i,:] = (np.abs(self.mu[:N]) + (1 + np.abs(self.alpha[i][:N])) * self.SigT[i] *
-                        self.mesh.binWidth(i) / 2
-                       )[:]
-
     while(self.currentEps > self.epsilon):
       #self.plotScalarFlux(iterationNum)
       self.iterationNum += 1
       # run a transport sweep
       oldError = self.scalarFlux - self.oldScalarFlux
-      self.oldScalarFlux = np.copy( self.scalarFlux[:] )
-      self.transportSweep()
+      self.oldScalarFlux = np.copy( self.scalarFlux )
+      self.scalarFlux = self.transportSweep()
 
       if (self.acceleration == "CMFD") and self.iterationNum > 1:
         self.oldCoarse = self.coarseDiffusion()
