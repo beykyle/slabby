@@ -609,8 +609,9 @@ class Slab:
 
   def estimateRho(self , oldError):
     currentError = self.scalarFlux - self.oldScalarFlux
-    rho = np.sqrt( np.dot(currentError , currentError ) / (np.dot(oldError , oldError ) ) )
+    rho = np.sqrt( np.dot(currentError , currentError  / (np.dot(oldError , oldError ) ) )
     return(rho)
+    #return( np.sqrt( np.dot( self.scalarFlux , self.scalarFlux) / np.dot(self.oldScalarFlux , self.oldScalarFlux) )  )
 
   def testConvergence(self , oldError):
     return( np.fabs(max( np.divide( oldError  , np.abs(self.scalarFlux) ) ) ))
@@ -645,8 +646,8 @@ class Slab:
         self.alpha[i][:] *=  1 / np.tanh(tau / 2)  - 2 / tau
 
     # inital scalar flux guess
-    self.scalarFlux    = np.zeros(self.numBins)
-    self.oldScalarFlux = np.zeros(self.numBins)
+    self.scalarFlux    = np.random.rand(self.numBins)*99.9
+    self.oldScalarFlux = np.random.rand(self.numBins)*100
     self.iterationNum = 0
     self.clearOutput()
 
